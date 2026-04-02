@@ -1,0 +1,13 @@
+{
+  "name": "ai-findsubject",
+  "version": "1.0.0",
+  "description": "ระบบค้นหาสาขาวิชา หลักสูตร ปวช./ปวส. พ.ศ. 2567",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

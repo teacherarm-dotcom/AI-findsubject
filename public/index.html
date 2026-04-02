@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ค้นหาสาขาวิชา - หลักสูตร ปวช./ปวส. 2567</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,1,0" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Animated Background -->
+  <div class="bg-decoration">
+    <div class="bg-circle bg-circle-1"></div>
+    <div class="bg-circle bg-circle-2"></div>
+    <div class="bg-circle bg-circle-3"></div>
+  </div>
+
+  <!-- Header -->
+  <header>
+    <div class="container">
+      <div class="header-icon">
+        <span class="material-symbols-rounded">school</span>
+      </div>
+      <h1>ค้นหาสาขาวิชา</h1>
+      <p class="subtitle">หลักสูตรประกาศนียบัตรวิชาชีพ (ปวช.) และประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)<br>พุทธศักราช 2567</p>
+
+      <!-- Stats Cards -->
+      <div class="stats-cards" id="statsCards">
+        <div class="stat-card">
+          <span class="material-symbols-rounded">database</span>
+          <div class="stat-number" id="statTotal">-</div>
+          <div class="stat-label">สาขาวิชาทั้งหมด</div>
+        </div>
+        <div class="stat-card stat-pvch">
+          <span class="material-symbols-rounded">menu_book</span>
+          <div class="stat-number" id="statPvch">-</div>
+          <div class="stat-label">ปวช.</div>
+        </div>
+        <div class="stat-card stat-pvs">
+          <span class="material-symbols-rounded">auto_stories</span>
+          <div class="stat-number" id="statPvs">-</div>
+          <div class="stat-label">ปวส.</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Search Section -->
+  <main class="container">
+    <section class="search-section">
+      <div class="search-box">
+        <span class="material-symbols-rounded search-icon">search</span>
+        <input type="text" id="searchInput" placeholder="พิมพ์ค้นหาชื่อสาขาวิชา หรือรหัส..." autofocus>
+        <button class="search-clear" id="searchClear" title="ล้างการค้นหา" hidden>
+          <span class="material-symbols-rounded">close</span>
+        </button>
+      </div>
+
+      <div class="filters">
+        <div class="filter-group">
+          <label for="levelFilter">
+            <span class="material-symbols-rounded">tune</span> ระดับ
+          </label>
+          <select id="levelFilter">
+            <option value="">ทั้งหมด</option>
+            <option value="ปวช.">ปวช. - ประกาศนียบัตรวิชาชีพ</option>
+            <option value="ปวส.">ปวส. - ประกาศนียบัตรวิชาชีพชั้นสูง</option>
+          </select>
+        </div>
+        <div class="filter-group">
+          <label for="categoryFilter">
+            <span class="material-symbols-rounded">category</span> ประเภทวิชา
+          </label>
+          <select id="categoryFilter">
+            <option value="">ทั้งหมด</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="resultStats" class="result-stats"></div>
+    </section>
+
+    <!-- Results -->
+    <section id="results" class="results"></section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-brand">
+          <span class="material-symbols-rounded">school</span>
+          <span>ระบบค้นหาสาขาวิชา</span>
+        </div>
+        <p>ข้อมูลจาก <a href="https://bsq.vec.go.th" target="_blank" rel="noopener">สำนักมาตรฐานอาชีวศึกษาและวิชาชีพ</a></p>
+        <p class="footer-note">สำนักงานคณะกรรมการการอาชีวศึกษา | หลักสูตร พ.ศ. 2567</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
