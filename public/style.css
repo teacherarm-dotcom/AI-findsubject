@@ -1179,28 +1179,30 @@ header h1 {
   color: var(--text-muted);
 }
 
-/* ===== Tools Bar ===== */
-.tools-bar {
+/* ===== Filter Tools ===== */
+.filter-tools {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  align-items: flex-end;
+  flex-shrink: 0;
 }
 
 .btn-tool {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
+  padding: 12px 18px;
   background: linear-gradient(135deg, #db2777, #ec4899);
   color: white;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   transition: var(--transition);
   box-shadow: 0 2px 8px rgba(219,39,119,0.25);
+  white-space: nowrap;
+  height: 46px;
 }
 
 .btn-tool .material-symbols-rounded {
@@ -1624,8 +1626,22 @@ mark {
   }
 
   .filters {
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 10px;
+  }
+
+  .filter-group {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
+  .filter-tools {
+    width: 100%;
+  }
+
+  .btn-tool {
+    width: 100%;
+    justify-content: center;
   }
 
   .result-card {
