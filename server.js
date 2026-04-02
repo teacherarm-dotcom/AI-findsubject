@@ -171,6 +171,62 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
+// API: Generate document (DOCX)
+app.get('/api/generate-doc', async (req, res) => {
+  const subjectCode = req.query.code;
+  const deptCode = req.query.dept;
+  const format = req.query.format || 'docx'; // 'docx' or 'pdf'
+
+  if (!subjectCode || !deptCode) {
+    return res.status(400).json({ error: 'Missing code or dept parameter' });
+  }
+
+  const outputDir = path.join(__dirname, 'tmp');
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const timestamp = Date.now();
+  const outputFile = path.join(outputDir, `${subjectCode}_${timestamp}.docx`);
+  const scriptPath = path.join(__dirname, 'scripts', 'generate_doc.py');
+
+  const { execFile } = require('child_process');
+
+  execFile('python3', [scriptPath, subjectCode, deptCode, outputFile], {
+    timeout: 120000,
+    maxBuffer: 1024 * 1024
+  }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Generate doc error:', error.message);
+      console.error('stderr:', stderr);
+      return res.status(500).json({ error: 'Document generation failed' });
+    }
+
+    try {
+      const result = JSON.parse(stdout.trim());
+
+      if (!result.success) {
+        return res.status(500).json({ error: result.error || 'Generation failed' });
+      }
+
+      // Send file
+      const filename = `${subjectCode}_${result.subject.name}.docx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+
+      const fileStream = fs.createReadStream(outputFile);
+      fileStream.pipe(res);
+      fileStream.on('end', () => {
+        // Clean up temp file
+        fs.unlink(outputFile, () => {});
+      });
+    } catch (e) {
+      console.error('Parse error:', e, stdout);
+      res.status(500).json({ error: 'Invalid response from generator' });
+    }
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Loaded ${departments.length} departments, ${flatSubjects.length} unique subjects`);

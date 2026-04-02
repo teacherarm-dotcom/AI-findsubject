@@ -387,10 +387,16 @@ function renderResults(data, query) {
                 ${s.credit ? `<span class="subject-credit">${s.credit}</span>` : ''}
               </div>
             </div>
-            <a class="btn-pdf" href="${s.pdfUrl}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
-              <span class="material-symbols-rounded">description</span>
-              PDF
-            </a>
+            <div class="subject-actions">
+              <button class="btn-download-doc" onclick="downloadDoc('${s.code}','${s.deptCode}')" title="ดาวน์โหลด Word">
+                <span class="material-symbols-rounded">download</span>
+                Word
+              </button>
+              <a class="btn-pdf" href="${s.pdfUrl}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
+                <span class="material-symbols-rounded">description</span>
+                PDF
+              </a>
+            </div>
           </div>
         `;
       });
@@ -500,6 +506,57 @@ document.addEventListener('keydown', (e) => {
     searchInput.focus();
   }
 });
+
+// ===== Download Document =====
+async function downloadDoc(subjectCode, deptCode) {
+  // Find the button and show loading
+  const btns = document.querySelectorAll('.btn-download-doc');
+  let targetBtn = null;
+  btns.forEach(btn => {
+    if (btn.getAttribute('onclick').includes(subjectCode)) {
+      targetBtn = btn;
+    }
+  });
+
+  if (targetBtn) {
+    targetBtn.disabled = true;
+    targetBtn.innerHTML = `<span class="material-symbols-rounded spinning">progress_activity</span> กำลังสร้าง...`;
+  }
+
+  try {
+    const response = await fetch(`/api/generate-doc?code=${encodeURIComponent(subjectCode)}&dept=${encodeURIComponent(deptCode)}`);
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error || 'Download failed');
+    }
+
+    // Get filename from Content-Disposition header
+    const disposition = response.headers.get('Content-Disposition');
+    let filename = `${subjectCode}.docx`;
+    if (disposition) {
+      const match = disposition.match(/filename\*=UTF-8''(.+)/);
+      if (match) filename = decodeURIComponent(match[1]);
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('เกิดข้อผิดพลาด: ' + e.message);
+  } finally {
+    if (targetBtn) {
+      targetBtn.disabled = false;
+      targetBtn.innerHTML = `<span class="material-symbols-rounded">download</span> Word`;
+    }
+  }
+}
 
 // Init
 loadStats();
