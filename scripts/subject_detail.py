@@ -95,7 +95,7 @@ def extract_details(pdf_path, subject_code):
                     'จุดประสงค', 'สมรรถนะรายวิชา',
                     'คําอธิบายรายวิชา', 'คำอธิบายรายวิชา',
                     'Course Objectives'
-                ]):
+                ]) or re.search(r'ค.{0,2}อธิบายรายวิชา', text):
                     found = True
                     full_text = text
                     result["pdfPage"] = page.page_number
@@ -137,7 +137,7 @@ def extract_details(pdf_path, subject_code):
             elif re.search(r'สมรรถนะรายวิชา', line_stripped):
                 current_section = 'competencies'
                 continue
-            elif re.search(r'คํ?าอธิบายรายวิชา', line_stripped):
+            elif re.search(r'ค.{0,2}อธิบายรายวิชา', line_stripped):
                 current_section = 'description'
                 continue
             # English patterns
