@@ -25,7 +25,11 @@ const uniqueSubjects = new Map(); // deduplicate by code
 for (const dept of departments) {
   const deptSubjects = subjectsData.subjects[dept.code] || [];
   for (const subj of deptSubjects) {
-    if (!uniqueSubjects.has(subj.code)) {
+    // Check if subject's own dept matches (e.g. 20000-xxxx belongs to dept 20000)
+    const subjOwnDept = subj.code.substring(0, 5);
+    const isOwnDept = (dept.code === subjOwnDept);
+
+    if (!uniqueSubjects.has(subj.code) || isOwnDept) {
       uniqueSubjects.set(subj.code, {
         ...subj,
         deptCode: dept.code,
