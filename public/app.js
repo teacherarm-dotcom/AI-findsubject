@@ -700,6 +700,161 @@ async function downloadDoc(subjectCode, deptCode) {
   }
 }
 
+// ===== PDF Splitter =====
+const pdfSplitModal = document.getElementById('pdfSplitModal');
+const pdfSplitClose = document.getElementById('pdfSplitClose');
+const btnPdfSplit = document.getElementById('btnPdfSplit');
+const pdfFileInput = document.getElementById('pdfFileInput');
+const pdfUploadLabel = document.getElementById('pdfUploadLabel');
+const pdfInfo = document.getElementById('pdfInfo');
+const pdfPageCount = document.getElementById('pdfPageCount');
+const pdfPageRange = document.getElementById('pdfPageRange');
+const btnDoSplit = document.getElementById('btnDoSplit');
+const pdfSplitLoading = document.getElementById('pdfSplitLoading');
+const pdfSplitContent = document.getElementById('pdfSplitContent');
+
+let pdfSplitFile = null;
+let pdfSplitTotalPages = 0;
+let pdfLibLoaded = false;
+
+function openPdfSplitModal() {
+  pdfSplitModal.style.display = 'flex';
+  if (!pdfLibLoaded && !window.PDFLib) {
+    pdfSplitLoading.style.display = 'flex';
+    pdfSplitContent.style.display = 'none';
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    script.onload = () => {
+      pdfLibLoaded = true;
+      pdfSplitLoading.style.display = 'none';
+      pdfSplitContent.style.display = 'block';
+    };
+    document.body.appendChild(script);
+  } else {
+    pdfLibLoaded = true;
+    pdfSplitLoading.style.display = 'none';
+    pdfSplitContent.style.display = 'block';
+  }
+}
+
+function closePdfSplitModal() {
+  pdfSplitModal.style.display = 'none';
+  // Reset state
+  pdfSplitFile = null;
+  pdfSplitTotalPages = 0;
+  pdfFileInput.value = '';
+  pdfPageRange.value = '';
+  pdfInfo.style.display = 'none';
+  btnDoSplit.disabled = true;
+  pdfUploadLabel.className = 'upload-label';
+  pdfUploadLabel.innerHTML = `
+    <span class="material-symbols-rounded">upload_file</span>
+    <span>คลิกเพื่อเลือกไฟล์ PDF</span>
+  `;
+}
+
+btnPdfSplit.addEventListener('click', openPdfSplitModal);
+pdfSplitClose.addEventListener('click', closePdfSplitModal);
+pdfSplitModal.addEventListener('click', (e) => {
+  if (e.target === pdfSplitModal) closePdfSplitModal();
+});
+
+pdfFileInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (file.type !== 'application/pdf') {
+    alert('กรุณาเลือกไฟล์ PDF เท่านั้น');
+    return;
+  }
+  pdfSplitFile = file;
+  pdfUploadLabel.className = 'upload-label has-file';
+  pdfUploadLabel.innerHTML = `
+    <span class="material-symbols-rounded">description</span>
+    <span>${escapeHtml(file.name)}</span>
+  `;
+
+  if (pdfLibLoaded) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await window.PDFLib.PDFDocument.load(arrayBuffer);
+      pdfSplitTotalPages = pdfDoc.getPageCount();
+      pdfPageCount.textContent = pdfSplitTotalPages + ' หน้า';
+      pdfInfo.style.display = 'flex';
+    } catch (err) {
+      alert('ไม่สามารถอ่านไฟล์ PDF ได้');
+      return;
+    }
+  }
+  updateSplitButton();
+});
+
+pdfPageRange.addEventListener('input', updateSplitButton);
+
+function updateSplitButton() {
+  btnDoSplit.disabled = !pdfSplitFile || !pdfPageRange.value.trim();
+}
+
+function parsePageRanges(rangeStr, total) {
+  const pages = new Set();
+  rangeStr.split(',').map(p => p.trim()).forEach(part => {
+    if (part.includes('-')) {
+      const [start, end] = part.split('-').map(Number);
+      if (!isNaN(start) && !isNaN(end)) {
+        for (let i = start; i <= end; i++) {
+          if (i >= 1 && i <= total) pages.add(i - 1);
+        }
+      }
+    } else {
+      const page = parseInt(part);
+      if (!isNaN(page) && page >= 1 && page <= total) pages.add(page - 1);
+    }
+  });
+  return Array.from(pages).sort((a, b) => a - b);
+}
+
+btnDoSplit.addEventListener('click', async () => {
+  if (!pdfSplitFile || !pdfPageRange.value.trim() || !pdfLibLoaded) return;
+
+  btnDoSplit.disabled = true;
+  const origHTML = btnDoSplit.innerHTML;
+  btnDoSplit.innerHTML = `<span class="material-symbols-rounded spinning">progress_activity</span> กำลังตัดไฟล์...`;
+
+  try {
+    const { PDFDocument } = window.PDFLib;
+    const arrayBuffer = await pdfSplitFile.arrayBuffer();
+    const srcDoc = await PDFDocument.load(arrayBuffer);
+    const newDoc = await PDFDocument.create();
+    const pageIndices = parsePageRanges(pdfPageRange.value, pdfSplitTotalPages);
+
+    if (pageIndices.length === 0) {
+      alert('ระบุเลขหน้าไม่ถูกต้อง');
+      btnDoSplit.innerHTML = origHTML;
+      btnDoSplit.disabled = false;
+      return;
+    }
+
+    const copiedPages = await newDoc.copyPages(srcDoc, pageIndices);
+    copiedPages.forEach(page => newDoc.addPage(page));
+    const pdfBytes = await newDoc.save();
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Split_${pdfSplitFile.name}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    closePdfSplitModal();
+  } catch (err) {
+    console.error(err);
+    alert('เกิดข้อผิดพลาดในการตัดไฟล์');
+  } finally {
+    btnDoSplit.innerHTML = origHTML;
+    btnDoSplit.disabled = false;
+  }
+});
+
 // Init
 loadStats();
 loadCategories();
