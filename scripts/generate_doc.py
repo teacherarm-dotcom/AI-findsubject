@@ -95,7 +95,8 @@ def extract_subject_details(pdf_path, subject_code):
         "learningOutcomes": "",
         "objectives": "",
         "competencies": "",
-        "description": ""
+        "description": "",
+        "pdfPage": 0  # แผ่นกระดาษ (1-based PDF page)
     }
 
     code_pattern = subject_code.replace("-", "[-–]")
@@ -117,8 +118,10 @@ def extract_subject_details(pdf_path, subject_code):
                 if any(kw in text for kw in ['อ.างอิงมาตรฐาน', 'อ0างอิงมาตรฐาน', 'จุดประสงค', 'สมรรถนะรายวิชา', 'คําอธิบายรายวิชา', 'คำอธิบายรายวิชา']):
                     found = True
                     full_text = text
+                    # page.page_number is 1-based = แผ่นกระดาษใน PDF viewer
+                    details["pdfPage"] = page.page_number
                     # Also get next page (description might overflow)
-                    page_idx = page.page_number
+                    page_idx = page.page_number  # 1-based, so index = page_number
                     if page_idx < len(pdf.pages):
                         next_text = pdf.pages[page_idx].extract_text()
                         if next_text and not re.search(r'\d{5}[-–]\d{4}', next_text[:50]):
@@ -321,6 +324,7 @@ def main():
     result = {
         "success": True,
         "file": output_path,
+        "pdfPage": details.get("pdfPage", 0),
         "subject": {
             "code": subject_code,
             "name": subj["nameTh"],

@@ -209,10 +209,13 @@ app.get('/api/generate-doc', async (req, res) => {
         return res.status(500).json({ error: result.error || 'Generation failed' });
       }
 
-      // Send file
+      // Send file with pdfPage info in header
       const filename = `${subjectCode}_${result.subject.name}.docx`;
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+      if (result.pdfPage) {
+        res.setHeader('X-Pdf-Page', result.pdfPage);
+      }
 
       const fileStream = fs.createReadStream(outputFile);
       fileStream.pipe(res);
@@ -223,6 +226,35 @@ app.get('/api/generate-doc', async (req, res) => {
     } catch (e) {
       console.error('Parse error:', e, stdout);
       res.status(500).json({ error: 'Invalid response from generator' });
+    }
+  });
+});
+
+// API: Find PDF page number for a subject
+app.get('/api/find-page', (req, res) => {
+  const subjectCode = req.query.code;
+  const deptCode = req.query.dept;
+
+  if (!subjectCode || !deptCode) {
+    return res.status(400).json({ error: 'Missing code or dept parameter' });
+  }
+
+  const scriptPath = path.join(__dirname, 'scripts', 'find_page.py');
+  const { execFile } = require('child_process');
+
+  execFile('python3', [scriptPath, subjectCode, deptCode], {
+    timeout: 60000,
+    maxBuffer: 1024 * 1024
+  }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Find page error:', error.message);
+      return res.status(500).json({ error: 'Page lookup failed' });
+    }
+    try {
+      const result = JSON.parse(stdout.trim());
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: 'Invalid response' });
     }
   });
 });

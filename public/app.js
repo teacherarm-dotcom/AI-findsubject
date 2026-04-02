@@ -388,10 +388,14 @@ function renderResults(data, query) {
               </div>
             </div>
             <div class="subject-actions">
-              <button class="btn-download-doc" onclick="downloadDoc('${s.code}','${s.deptCode}')" title="ดาวน์โหลด Word">
+              <button class="btn-find-page" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="findPage(this)" title="ค้นหาแผ่นกระดาษใน PDF">
+                <span class="material-symbols-rounded">pin_drop</span>
+                หาแผ่น
+              </button>
+              <a class="btn-download-doc" href="/api/generate-doc?code=${encodeURIComponent(s.code)}&dept=${encodeURIComponent(s.deptCode)}" title="ดาวน์โหลด Word">
                 <span class="material-symbols-rounded">download</span>
                 Word
-              </button>
+              </a>
               <a class="btn-pdf" href="${s.pdfUrl}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
                 <span class="material-symbols-rounded">description</span>
                 PDF
@@ -506,6 +510,45 @@ document.addEventListener('keydown', (e) => {
     searchInput.focus();
   }
 });
+
+// ===== Find PDF Page =====
+async function findPage(btn) {
+  const code = btn.dataset.code;
+  const dept = btn.dataset.dept;
+  const pdfUrl = btn.dataset.pdf;
+
+  // Show loading
+  btn.disabled = true;
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = `<span class="material-symbols-rounded spinning">progress_activity</span> กำลังค้นหา...`;
+
+  try {
+    const res = await fetch(`/api/find-page?code=${encodeURIComponent(code)}&dept=${encodeURIComponent(dept)}`);
+    const data = await res.json();
+
+    if (data.pdfPage && data.pdfPage > 0) {
+      // Replace button with page badge + link to open PDF at that page
+      const pageUrl = `${pdfUrl}#page=${data.pdfPage}`;
+      btn.outerHTML = `
+        <a class="btn-page-found" href="${pageUrl}" target="_blank" rel="noopener" title="เปิด PDF ที่แผ่นนี้">
+          <span class="material-symbols-rounded">menu_book</span>
+          แผ่นที่ ${data.pdfPage}
+        </a>
+      `;
+    } else {
+      btn.innerHTML = `<span class="material-symbols-rounded">help</span> ไม่พบ`;
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = origHTML;
+        btn.disabled = false;
+      }, 3000);
+    }
+  } catch (e) {
+    btn.innerHTML = origHTML;
+    btn.disabled = false;
+    alert('เกิดข้อผิดพลาด: ' + e.message);
+  }
+}
 
 // ===== Download Document =====
 async function downloadDoc(subjectCode, deptCode) {
