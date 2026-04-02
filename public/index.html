@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ค้นหาสาขาวิชา - หลักสูตร ปวช./ปวส. 2567</title>
+  <title>ค้นหารายวิชา - หลักสูตร ปวช./ปวส. 2567</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -25,7 +25,7 @@
       <div class="header-icon">
         <span class="material-symbols-rounded">school</span>
       </div>
-      <h1>ค้นหาสาขาวิชา</h1>
+      <h1>ค้นหารายวิชา</h1>
       <p class="subtitle">หลักสูตรประกาศนียบัตรวิชาชีพ (ปวช.) และประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)<br>พุทธศักราช 2567</p>
 
       <!-- Stats Cards -->
@@ -33,7 +33,7 @@
         <div class="stat-card">
           <span class="material-symbols-rounded">database</span>
           <div class="stat-number" id="statTotal">-</div>
-          <div class="stat-label">สาขาวิชาทั้งหมด</div>
+          <div class="stat-label">สาขาวิชา</div>
         </div>
         <div class="stat-card stat-pvch">
           <span class="material-symbols-rounded">menu_book</span>
@@ -45,6 +45,11 @@
           <div class="stat-number" id="statPvs">-</div>
           <div class="stat-label">ปวส.</div>
         </div>
+        <div class="stat-card stat-subjects">
+          <span class="material-symbols-rounded">library_books</span>
+          <div class="stat-number" id="statSubjects">-</div>
+          <div class="stat-label">รายวิชา</div>
+        </div>
       </div>
     </div>
   </header>
@@ -52,12 +57,18 @@
   <!-- Search Section -->
   <main class="container">
     <section class="search-section">
-      <div class="search-box">
-        <span class="material-symbols-rounded search-icon">search</span>
-        <input type="text" id="searchInput" placeholder="พิมพ์ค้นหาชื่อสาขาวิชา หรือรหัส..." autofocus>
-        <button class="search-clear" id="searchClear" title="ล้างการค้นหา" hidden>
-          <span class="material-symbols-rounded">close</span>
-        </button>
+      <div class="search-wrapper">
+        <div class="search-box">
+          <span class="material-symbols-rounded search-icon">search</span>
+          <input type="text" id="searchInput" placeholder="พิมพ์ค้นหาชื่อรายวิชา, สาขาวิชา หรือรหัส..." autofocus autocomplete="off">
+          <button class="search-clear" id="searchClear" title="ล้างการค้นหา" hidden>
+            <span class="material-symbols-rounded">close</span>
+          </button>
+        </div>
+        <!-- Autocomplete Dropdown -->
+        <div class="autocomplete-dropdown" id="autocompleteDropdown" hidden>
+          <div class="autocomplete-list" id="autocompleteList"></div>
+        </div>
       </div>
 
       <div class="filters">
@@ -94,7 +105,7 @@
       <div class="footer-content">
         <div class="footer-brand">
           <span class="material-symbols-rounded">school</span>
-          <span>ระบบค้นหาสาขาวิชา</span>
+          <span>ระบบค้นหารายวิชา</span>
         </div>
         <p>ข้อมูลจาก <a href="https://bsq.vec.go.th" target="_blank" rel="noopener">สำนักมาตรฐานอาชีวศึกษาและวิชาชีพ</a></p>
         <p class="footer-note">สำนักงานคณะกรรมการการอาชีวศึกษา | หลักสูตร พ.ศ. 2567</p>

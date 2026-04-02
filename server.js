@@ -10,43 +10,146 @@ const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'department
 const departments = data.departments;
 const pdfBaseUrl = data.pdfBaseUrl;
 
+// Load subjects data
+let subjectsData = { subjects: {} };
+const subjectsPath = path.join(__dirname, 'data', 'subjects.json');
+if (fs.existsSync(subjectsPath)) {
+  subjectsData = JSON.parse(fs.readFileSync(subjectsPath, 'utf8'));
+  console.log(`Loaded subjects: ${subjectsData.totalSubjects} subjects from ${subjectsData.departmentsWithSubjects} departments`);
+}
+
+// Build flat subject list with department info for fast searching
+const allSubjects = [];
+const uniqueSubjects = new Map(); // deduplicate by code
+
+for (const dept of departments) {
+  const deptSubjects = subjectsData.subjects[dept.code] || [];
+  for (const subj of deptSubjects) {
+    if (!uniqueSubjects.has(subj.code)) {
+      uniqueSubjects.set(subj.code, {
+        ...subj,
+        deptCode: dept.code,
+        deptName: dept.name,
+        level: dept.level,
+        category: dept.category,
+        group: dept.group,
+        pdf: dept.pdf
+      });
+    }
+  }
+}
+const flatSubjects = Array.from(uniqueSubjects.values());
+
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API: Search departments
+// API: Autocomplete suggestions
+app.get('/api/autocomplete', (req, res) => {
+  const q = (req.query.q || '').trim().toLowerCase();
+  if (!q || q.length < 1) {
+    return res.json({ departments: [], subjects: [] });
+  }
+
+  // Search departments (max 5)
+  const deptResults = departments
+    .filter(d =>
+      d.name.toLowerCase().includes(q) ||
+      d.code.includes(q) ||
+      d.category.toLowerCase().includes(q) ||
+      d.group.toLowerCase().includes(q)
+    )
+    .slice(0, 5)
+    .map(d => ({
+      ...d,
+      pdfUrl: pdfBaseUrl + d.pdf
+    }));
+
+  // Search subjects (max 8)
+  const subjResults = flatSubjects
+    .filter(s =>
+      s.nameTh.toLowerCase().includes(q) ||
+      s.code.toLowerCase().includes(q) ||
+      (s.nameEn && s.nameEn.toLowerCase().includes(q))
+    )
+    .slice(0, 8)
+    .map(s => ({
+      code: s.code,
+      nameTh: s.nameTh,
+      nameEn: s.nameEn,
+      credit: s.credit,
+      deptCode: s.deptCode,
+      deptName: s.deptName,
+      level: s.level,
+      pdfUrl: pdfBaseUrl + s.pdf
+    }));
+
+  res.json({
+    departments: deptResults,
+    subjects: subjResults
+  });
+});
+
+// API: Full search (departments + subjects)
 app.get('/api/search', (req, res) => {
   const q = (req.query.q || '').trim().toLowerCase();
   const level = req.query.level || '';
   const category = req.query.category || '';
+  const type = req.query.type || 'all'; // 'all', 'departments', 'subjects'
 
-  let results = departments;
+  let deptResults = departments;
+  let subjResults = flatSubjects;
 
+  // Apply filters
   if (level) {
-    results = results.filter(d => d.level === level);
+    deptResults = deptResults.filter(d => d.level === level);
+    subjResults = subjResults.filter(s => s.level === level);
   }
 
   if (category) {
-    results = results.filter(d => d.category === category);
+    deptResults = deptResults.filter(d => d.category === category);
+    subjResults = subjResults.filter(s => s.category === category);
   }
 
   if (q) {
-    results = results.filter(d =>
+    deptResults = deptResults.filter(d =>
       d.name.toLowerCase().includes(q) ||
       d.code.includes(q) ||
       d.category.toLowerCase().includes(q) ||
       d.group.toLowerCase().includes(q)
     );
+
+    subjResults = subjResults.filter(s =>
+      s.nameTh.toLowerCase().includes(q) ||
+      s.code.toLowerCase().includes(q) ||
+      (s.nameEn && s.nameEn.toLowerCase().includes(q)) ||
+      s.deptName.toLowerCase().includes(q)
+    );
   }
 
-  // Add full PDF URL
-  const mapped = results.map(d => ({
+  // Map with PDF URLs
+  const mappedDepts = deptResults.map(d => ({
     ...d,
     pdfUrl: pdfBaseUrl + d.pdf
   }));
 
+  const mappedSubjects = subjResults.slice(0, 200).map(s => ({
+    code: s.code,
+    nameTh: s.nameTh,
+    nameEn: s.nameEn,
+    credit: s.credit,
+    deptCode: s.deptCode,
+    deptName: s.deptName,
+    level: s.level,
+    category: s.category,
+    group: s.group,
+    pdfUrl: pdfBaseUrl + s.pdf
+  }));
+
   res.json({
-    total: mapped.length,
-    results: mapped
+    totalDepartments: mappedDepts.length,
+    totalSubjects: mappedSubjects.length,
+    departments: type === 'subjects' ? [] : mappedDepts,
+    subjects: type === 'departments' ? [] : mappedSubjects
   });
 });
 
@@ -60,10 +163,15 @@ app.get('/api/categories', (req, res) => {
 app.get('/api/stats', (req, res) => {
   const pvchCount = departments.filter(d => d.level === 'ปวช.').length;
   const pvsCount = departments.filter(d => d.level === 'ปวส.').length;
-  res.json({ total: departments.length, pvch: pvchCount, pvs: pvsCount });
+  res.json({
+    total: departments.length,
+    pvch: pvchCount,
+    pvs: pvsCount,
+    subjects: flatSubjects.length
+  });
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Loaded ${departments.length} departments`);
+  console.log(`Loaded ${departments.length} departments, ${flatSubjects.length} unique subjects`);
 });
