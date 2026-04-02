@@ -569,10 +569,10 @@ async function toggleDetail(card, detailId) {
           </div>
         </div>
         <div class="detail-sections">
-          <div class="detail-section">
+          ${dept !== '20000' && dept !== '30000' ? `<div class="detail-section">
             <div class="detail-section-title"><span class="material-symbols-rounded">verified</span> อ้างอิงมาตรฐานอาชีพ</div>
             <div class="detail-section-body">${escapeHtml(data.standardRef || '-')}</div>
-          </div>
+          </div>` : ''}
           <div class="detail-section">
             <div class="detail-section-title"><span class="material-symbols-rounded">emoji_objects</span> ผลลัพธ์การเรียนรู้ระดับรายวิชา</div>
             <div class="detail-section-body">${formatDetailText(data.learningOutcomes)}</div>
