@@ -377,8 +377,9 @@ function renderResults(data, query) {
       `;
 
       group.items.forEach(s => {
+        const cardId = `detail-${s.code}-${s.deptCode}`.replace(/[^a-zA-Z0-9-]/g, '_');
         html += `
-          <div class="subject-card">
+          <div class="subject-card" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="toggleDetail(this, '${cardId}')">
             <div class="subject-code">${highlightText(s.code, query)}</div>
             <div class="subject-info">
               <div class="subject-name-th">${highlightText(s.nameTh, query)}</div>
@@ -387,11 +388,7 @@ function renderResults(data, query) {
                 ${s.credit ? `<span class="subject-credit">${s.credit}</span>` : ''}
               </div>
             </div>
-            <div class="subject-actions">
-              <button class="btn-find-page" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="findPage(this)" title="ค้นหาแผ่นกระดาษใน PDF">
-                <span class="material-symbols-rounded">pin_drop</span>
-                หาแผ่น
-              </button>
+            <div class="subject-actions" onclick="event.stopPropagation()">
               <a class="btn-download-doc" href="/api/generate-doc?code=${encodeURIComponent(s.code)}&dept=${encodeURIComponent(s.deptCode)}" title="ดาวน์โหลด Word">
                 <span class="material-symbols-rounded">download</span>
                 Word
@@ -402,6 +399,7 @@ function renderResults(data, query) {
               </a>
             </div>
           </div>
+          <div class="subject-detail" id="${cardId}" style="display:none;"></div>
         `;
       });
     }
@@ -510,6 +508,107 @@ document.addEventListener('keydown', (e) => {
     searchInput.focus();
   }
 });
+
+// ===== Toggle Subject Detail =====
+async function toggleDetail(card, detailId) {
+  const detailDiv = document.getElementById(detailId);
+  if (!detailDiv) return;
+
+  // If already open, close it
+  if (detailDiv.style.display !== 'none') {
+    detailDiv.style.display = 'none';
+    card.classList.remove('subject-card-active');
+    return;
+  }
+
+  // If already loaded, just show
+  if (detailDiv.dataset.loaded) {
+    detailDiv.style.display = 'block';
+    card.classList.add('subject-card-active');
+    return;
+  }
+
+  const code = card.dataset.code;
+  const dept = card.dataset.dept;
+  const pdfUrl = card.dataset.pdf;
+
+  // Show loading
+  detailDiv.style.display = 'block';
+  card.classList.add('subject-card-active');
+  detailDiv.innerHTML = `
+    <div class="detail-loading">
+      <span class="material-symbols-rounded spinning">progress_activity</span>
+      กำลังดึงข้อมูลหลักสูตรรายวิชา...
+    </div>
+  `;
+
+  try {
+    const res = await fetch(`/api/subject-detail?code=${encodeURIComponent(code)}&dept=${encodeURIComponent(dept)}`);
+    const data = await res.json();
+
+    if (!data.success) {
+      detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> ${data.error || 'ไม่สามารถดึงข้อมูลได้'}</div>`;
+      return;
+    }
+
+    const pageInfo = data.pdfPage > 0
+      ? `<a class="detail-page-badge" href="${data.pdfUrl}" target="_blank" rel="noopener"><span class="material-symbols-rounded">menu_book</span> แผ่นที่ ${data.pdfPage}</a>`
+      : '';
+
+    detailDiv.innerHTML = `
+      <div class="detail-content">
+        <div class="detail-header">
+          <div class="detail-title">
+            <span class="detail-code">${data.courseCode}</span>
+            <span class="detail-name">${data.courseName}</span>
+            ${data.courseNameEn ? `<span class="detail-name-en">${data.courseNameEn}</span>` : ''}
+          </div>
+          <div class="detail-badges">
+            <span class="detail-credit"><span class="material-symbols-rounded">school</span> ${data.credit}</span>
+            ${pageInfo}
+          </div>
+        </div>
+        <div class="detail-sections">
+          <div class="detail-section">
+            <div class="detail-section-title"><span class="material-symbols-rounded">verified</span> อ้างอิงมาตรฐานอาชีพ</div>
+            <div class="detail-section-body">${escapeHtml(data.standardRef || '-')}</div>
+          </div>
+          <div class="detail-section">
+            <div class="detail-section-title"><span class="material-symbols-rounded">emoji_objects</span> ผลลัพธ์การเรียนรู้ระดับรายวิชา</div>
+            <div class="detail-section-body">${formatDetailText(data.learningOutcomes)}</div>
+          </div>
+          <div class="detail-section">
+            <div class="detail-section-title"><span class="material-symbols-rounded">target</span> จุดประสงค์รายวิชา</div>
+            <div class="detail-section-body">${formatDetailText(data.objectives)}</div>
+          </div>
+          <div class="detail-section">
+            <div class="detail-section-title"><span class="material-symbols-rounded">psychology</span> สมรรถนะรายวิชา</div>
+            <div class="detail-section-body">${formatDetailText(data.competencies)}</div>
+          </div>
+          <div class="detail-section">
+            <div class="detail-section-title"><span class="material-symbols-rounded">description</span> คำอธิบายรายวิชา</div>
+            <div class="detail-section-body">${formatDetailText(data.description)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+    detailDiv.dataset.loaded = 'true';
+
+  } catch (e) {
+    detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> เกิดข้อผิดพลาด: ${e.message}</div>`;
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatDetailText(text) {
+  if (!text) return '<span class="text-muted">-</span>';
+  return escapeHtml(text).replace(/\n/g, '<br>');
+}
 
 // ===== Find PDF Page =====
 async function findPage(btn) {

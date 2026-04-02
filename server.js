@@ -259,6 +259,35 @@ app.get('/api/find-page', (req, res) => {
   });
 });
 
+// API: Get subject detail (JSON) - full curriculum info
+app.get('/api/subject-detail', (req, res) => {
+  const subjectCode = req.query.code;
+  const deptCode = req.query.dept;
+
+  if (!subjectCode || !deptCode) {
+    return res.status(400).json({ error: 'Missing code or dept parameter' });
+  }
+
+  const scriptPath = path.join(__dirname, 'scripts', 'subject_detail.py');
+  const { execFile } = require('child_process');
+
+  execFile('python3', [scriptPath, subjectCode, deptCode], {
+    timeout: 120000,
+    maxBuffer: 1024 * 1024
+  }, (error, stdout, stderr) => {
+    if (error) {
+      console.error('Subject detail error:', error.message);
+      return res.status(500).json({ error: 'Detail extraction failed' });
+    }
+    try {
+      const result = JSON.parse(stdout.trim());
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: 'Invalid response' });
+    }
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Loaded ${departments.length} departments, ${flatSubjects.length} unique subjects`);
