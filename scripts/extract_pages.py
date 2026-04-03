@@ -76,23 +76,23 @@ def extract_pages_from_pdf(pdf_path, target_codes):
                 if not text:
                     continue
 
-                # Find all subject codes on this page
-                codes_on_page = set()
-                for m in CODE_RE.finditer(text):
-                    code = f"{m.group(1)}-{m.group(2)}"
-                    if code in target_codes:
-                        codes_on_page.add(code)
-
-                if not codes_on_page:
-                    continue
-
-                # Check if this is a detail page
+                # Check if this is a detail page first (has section keywords)
                 if not is_detail_page(text):
                     continue
 
-                # This page has both a target code AND detail keywords
-                # Typically only one subject per detail page
-                for code in codes_on_page:
+                # Only check subject codes in the TOP of the page (first ~300 chars)
+                # Detail pages always start with the subject code near the top
+                lines = text.split('\n')
+                top_text = '\n'.join(lines[:6])  # first 6 lines
+
+                top_codes = set()
+                for m in CODE_RE.finditer(top_text):
+                    code = f"{m.group(1)}-{m.group(2)}"
+                    if code in target_codes:
+                        top_codes.add(code)
+
+                # Assign page only to subjects whose code appears at top
+                for code in top_codes:
                     if code not in pages_map:
                         pages_map[code] = page.page_number
     except Exception as e:
