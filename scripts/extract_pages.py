@@ -102,14 +102,15 @@ def extract_pages_from_pdf(pdf_path, target_codes):
 
 
 def main():
-    # Build mapping: dept_code -> set of subject codes that belong to it
+    # Build mapping: dept_code -> set of subject codes to search in that dept's PDF
+    # IMPORTANT: Only search for subjects whose code prefix matches the dept code
+    # e.g. dept 20101 should only search for 20101-xxxx, NOT 20000-xxxx
     dept_subjects = {}
     for dept_code, subjs in subjects_data["subjects"].items():
         codes = set(s["code"] for s in subjs)
-        # Only include codes that "belong" to this dept (prefix matches)
-        own_codes = set(c for c in codes if c.startswith(dept_code))
-        # Also include all codes if dept is the subject's own dept
-        dept_subjects[dept_code] = codes
+        own_codes = set(c for c in codes if c[:5] == dept_code)
+        if own_codes:
+            dept_subjects[dept_code] = own_codes
 
     # Get unique dept codes that have subjects
     dept_lookup = {d["code"]: d for d in departments}
