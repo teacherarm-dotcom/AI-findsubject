@@ -18,6 +18,14 @@ if (fs.existsSync(subjectsPath)) {
   console.log(`Loaded subjects: ${subjectsData.totalSubjects} subjects from ${subjectsData.departmentsWithSubjects} departments`);
 }
 
+// Load pre-computed page numbers (optional)
+let pagesData = {};
+const pagesPath = path.join(__dirname, 'data', 'pages.json');
+if (fs.existsSync(pagesPath)) {
+  pagesData = JSON.parse(fs.readFileSync(pagesPath, 'utf8'));
+  console.log(`Loaded page numbers for ${Object.keys(pagesData).length} subjects`);
+}
+
 // Build flat subject list with department info for fast searching
 const allSubjects = [];
 const uniqueSubjects = new Map(); // deduplicate by code
@@ -84,7 +92,8 @@ app.get('/api/autocomplete', (req, res) => {
       deptCode: s.deptCode,
       deptName: s.deptName,
       level: s.level,
-      pdfUrl: pdfBaseUrl + s.pdf
+      pdfUrl: pdfBaseUrl + s.pdf,
+      pdfPage: pagesData[s.code] || 0
     }));
 
   res.json({
@@ -146,7 +155,8 @@ app.get('/api/search', (req, res) => {
     level: s.level,
     category: s.category,
     group: s.group,
-    pdfUrl: pdfBaseUrl + s.pdf
+    pdfUrl: pdfBaseUrl + s.pdf,
+    pdfPage: pagesData[s.code] || 0
   }));
 
   res.json({
@@ -288,6 +298,33 @@ app.get('/api/subject-detail', (req, res) => {
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: 'Invalid response' });
+    }
+  });
+});
+
+// API: Extract page numbers for all subjects (run once to populate pages.json)
+app.get('/api/extract-pages', (req, res) => {
+  const scriptPath = path.join(__dirname, 'scripts', 'extract_pages.py');
+  const { execFile } = require('child_process');
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.write('Starting page extraction...\n');
+
+  const child = execFile('python3', [scriptPath], {
+    timeout: 600000, // 10 minutes
+    maxBuffer: 10 * 1024 * 1024
+  }, (error, stdout, stderr) => {
+    if (error) {
+      res.end(`\nError: ${error.message}\n${stderr}`);
+      return;
+    }
+    // Reload pages data
+    try {
+      const newPages = JSON.parse(fs.readFileSync(pagesPath, 'utf8'));
+      Object.assign(pagesData, newPages);
+      res.end(`\n${stdout}\nReloaded ${Object.keys(pagesData).length} page numbers into memory.`);
+    } catch (e) {
+      res.end(`\n${stdout}\nWarning: Could not reload pages.json: ${e.message}`);
     }
   });
 });

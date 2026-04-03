@@ -378,6 +378,12 @@ function renderResults(data, query) {
 
       group.items.forEach(s => {
         const cardId = `detail-${s.code}-${s.deptCode}`.replace(/[^a-zA-Z0-9-]/g, '_');
+        const pageBadge = s.pdfPage > 0
+          ? `<a class="btn-page-found" href="${s.pdfUrl}#page=${s.pdfPage}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="เปิด PDF หน้าที่ ${s.pdfPage}">
+              <span class="material-symbols-rounded">menu_book</span>
+              หน้า ${s.pdfPage}
+            </a>`
+          : '';
         html += `
           <div class="subject-card" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="toggleDetail(this, '${cardId}')">
             <div class="subject-code">${highlightText(s.code, query)}</div>
@@ -389,10 +395,7 @@ function renderResults(data, query) {
               </div>
             </div>
             <div class="subject-actions" onclick="event.stopPropagation()">
-              <a class="btn-download-doc" href="/api/generate-doc?code=${encodeURIComponent(s.code)}&dept=${encodeURIComponent(s.deptCode)}" title="ดาวน์โหลด Word">
-                <span class="material-symbols-rounded">download</span>
-                Word
-              </a>
+              ${pageBadge}
               <a class="btn-pdf" href="${s.pdfUrl}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
                 <span class="material-symbols-rounded">description</span>
                 PDF
@@ -646,57 +649,6 @@ async function findPage(btn) {
     btn.innerHTML = origHTML;
     btn.disabled = false;
     alert('เกิดข้อผิดพลาด: ' + e.message);
-  }
-}
-
-// ===== Download Document =====
-async function downloadDoc(subjectCode, deptCode) {
-  // Find the button and show loading
-  const btns = document.querySelectorAll('.btn-download-doc');
-  let targetBtn = null;
-  btns.forEach(btn => {
-    if (btn.getAttribute('onclick').includes(subjectCode)) {
-      targetBtn = btn;
-    }
-  });
-
-  if (targetBtn) {
-    targetBtn.disabled = true;
-    targetBtn.innerHTML = `<span class="material-symbols-rounded spinning">progress_activity</span> กำลังสร้าง...`;
-  }
-
-  try {
-    const response = await fetch(`/api/generate-doc?code=${encodeURIComponent(subjectCode)}&dept=${encodeURIComponent(deptCode)}`);
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(err.error || 'Download failed');
-    }
-
-    // Get filename from Content-Disposition header
-    const disposition = response.headers.get('Content-Disposition');
-    let filename = `${subjectCode}.docx`;
-    if (disposition) {
-      const match = disposition.match(/filename\*=UTF-8''(.+)/);
-      if (match) filename = decodeURIComponent(match[1]);
-    }
-
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch (e) {
-    alert('เกิดข้อผิดพลาด: ' + e.message);
-  } finally {
-    if (targetBtn) {
-      targetBtn.disabled = false;
-      targetBtn.innerHTML = `<span class="material-symbols-rounded">download</span> Word`;
-    }
   }
 }
 
