@@ -378,12 +378,12 @@ function renderResults(data, query) {
 
       group.items.forEach(s => {
         const cardId = `detail-${s.code}-${s.deptCode}`.replace(/[^a-zA-Z0-9-]/g, '_');
-        const pageBadge = s.pdfPage > 0
-          ? `<a class="btn-page-found" href="${s.pdfUrl}#page=${s.pdfPage}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="เปิด PDF หน้าที่ ${s.pdfPage}">
-              <span class="material-symbols-rounded">menu_book</span>
-              หน้า ${s.pdfPage}
-            </a>`
-          : '';
+        const hasPage = s.pdfPage > 0;
+        const pdfLink = hasPage ? `${s.pdfUrl}#page=${s.pdfPage}` : s.pdfUrl;
+        const pdfBtnClass = hasPage ? 'btn-page-found' : 'btn-pdf';
+        const pdfBtnText = hasPage
+          ? `<span class="material-symbols-rounded">menu_book</span> PDF หน้า ${s.pdfPage}`
+          : `<span class="material-symbols-rounded">description</span> PDF`;
         html += `
           <div class="subject-card" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="toggleDetail(this, '${cardId}')">
             <div class="subject-code">${highlightText(s.code, query)}</div>
@@ -395,10 +395,8 @@ function renderResults(data, query) {
               </div>
             </div>
             <div class="subject-actions" onclick="event.stopPropagation()">
-              ${pageBadge}
-              <a class="btn-pdf" href="${s.pdfUrl}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
-                <span class="material-symbols-rounded">description</span>
-                PDF
+              <a class="${pdfBtnClass}" href="${pdfLink}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
+                ${pdfBtnText}
               </a>
             </div>
           </div>
