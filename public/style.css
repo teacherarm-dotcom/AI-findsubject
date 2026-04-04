@@ -1534,6 +1534,15 @@ footer a:hover {
   opacity: 1;
 }
 
+.footer-note a {
+  color: #fde047;
+  font-weight: 700;
+}
+
+.footer-note a:hover {
+  color: white;
+}
+
 /* ===== Highlight ===== */
 mark {
   background: linear-gradient(120deg, #fef08a 0%, #fde047 100%);
