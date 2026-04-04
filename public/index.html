@@ -95,10 +95,6 @@
             <span class="material-symbols-rounded">content_cut</span>
             ตัด PDF
           </button>
-          <button class="btn-tool btn-tool-sync" id="btnSync" title="ตรวจสอบและอัปเดตลิงก์ PDF จาก สมอ.">
-            <span class="material-symbols-rounded">sync</span>
-            ซิงค์ สมอ.
-          </button>
         </div>
       </div>
 
@@ -119,6 +115,10 @@
         </div>
         <p>ข้อมูลจาก <a href="https://bsq.vec.go.th" target="_blank" rel="noopener">สำนักมาตรฐานอาชีวศึกษาและวิชาชีพ</a></p>
         <p class="footer-note">หน่วยศึกษานิเทศก์ สำนักงานคณะกรรมการการอาชีวศึกษา | หลักสูตร พ.ศ. 2567</p>
+        <p class="footer-sync" id="footerSync"></p>
+        <div class="footer-counter">
+          <a href="https://www.freecounterstat.com" title="web counter" target="_blank" rel="noopener"><img src="https://counter1.optistats.ovh/private/freecounterstat.php?c=1zl2gwp4q5lxe47hna9scynpmtfup5fq" border="0" title="web counter" alt="web counter"></a>
+        </div>
       </div>
     </div>
   </footer>
@@ -165,41 +165,6 @@
             ตัดไฟล์และดาวน์โหลด
           </button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Sync Modal -->
-  <div class="modal-overlay" id="syncModal" style="display:none;">
-    <div class="modal-box sync-modal-box">
-      <button class="modal-close" id="syncClose">
-        <span class="material-symbols-rounded">close</span>
-      </button>
-      <div class="modal-header">
-        <div class="modal-icon green">
-          <span class="material-symbols-rounded">sync</span>
-        </div>
-        <div>
-          <h3 class="modal-title">ซิงค์ข้อมูลกับ สมอ.</h3>
-          <p class="modal-subtitle">ตรวจสอบและอัปเดตลิงก์ PDF จากสำนักมาตรฐานอาชีวศึกษาฯ</p>
-        </div>
-      </div>
-      <div class="modal-body">
-        <p class="sync-desc">ระบบจะตรวจสอบลิงก์ PDF ทั้ง <strong id="syncTotalDepts">175</strong> สาขาวิชา หากพบเวอร์ชันใหม่หรือลิงก์เสีย จะแนะนำการแก้ไขให้</p>
-        <button class="btn-sync-check" id="btnSyncCheck">
-          <span class="material-symbols-rounded">fact_check</span>
-          ตรวจสอบอัปเดต
-        </button>
-        <div id="syncProgress" style="display:none;">
-          <div class="sync-progress-text" id="syncProgressText">กำลังตรวจสอบ 0/175...</div>
-          <div class="sync-progress-bar"><div class="sync-progress-fill" id="syncProgressFill"></div></div>
-        </div>
-        <div id="syncSummary" style="display:none;"></div>
-        <div class="sync-results-list" id="syncResultsList" style="display:none;"></div>
-        <button class="btn-sync-apply" id="btnSyncApply" style="display:none;">
-          <span class="material-symbols-rounded">system_update_alt</span>
-          <span id="btnSyncApplyText">อัปเดต</span>
-        </button>
       </div>
     </div>
   </div>

@@ -1,0 +1,47 @@
+name: Sync PDF Links
+
+on:
+  schedule:
+    # Run at midnight Thailand time (17:00 UTC previous day)
+    - cron: '0 17 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run sync script
+        run: python scripts/sync_links.py
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet data/departments.json; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/departments.json
+          git commit -m "sync: update PDF links from VEC website
+
+          Automated daily sync - checked all department PDF links
+          and updated any that changed on the VEC server."
+          git push
