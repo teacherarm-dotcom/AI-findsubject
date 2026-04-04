@@ -2,57 +2,61 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
-// Load department data
-const data = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'departments.json'), 'utf8'));
-const departments = data.departments;
-const pdfBaseUrl = data.pdfBaseUrl;
+// --- Data loading (can be re-called after sync) ---
+let departments, pdfBaseUrl, subjectsData, pagesData, flatSubjects;
 
-// Load subjects data
-let subjectsData = { subjects: {} };
 const subjectsPath = path.join(__dirname, 'data', 'subjects.json');
-if (fs.existsSync(subjectsPath)) {
-  subjectsData = JSON.parse(fs.readFileSync(subjectsPath, 'utf8'));
-  console.log(`Loaded subjects: ${subjectsData.totalSubjects} subjects from ${subjectsData.departmentsWithSubjects} departments`);
-}
-
-// Load pre-computed page numbers (optional)
-let pagesData = {};
 const pagesPath = path.join(__dirname, 'data', 'pages.json');
-if (fs.existsSync(pagesPath)) {
-  pagesData = JSON.parse(fs.readFileSync(pagesPath, 'utf8'));
-  console.log(`Loaded page numbers for ${Object.keys(pagesData).length} subjects`);
-}
+const deptFilePath = path.join(__dirname, 'data', 'departments.json');
 
-// Build flat subject list with department info for fast searching
-const allSubjects = [];
-const uniqueSubjects = new Map(); // deduplicate by code
+function loadData() {
+  const data = JSON.parse(fs.readFileSync(deptFilePath, 'utf8'));
+  departments = data.departments;
+  pdfBaseUrl = data.pdfBaseUrl;
 
-for (const dept of departments) {
-  const deptSubjects = subjectsData.subjects[dept.code] || [];
-  for (const subj of deptSubjects) {
-    // Check if subject's own dept matches (e.g. 20000-xxxx belongs to dept 20000)
-    const subjOwnDept = subj.code.substring(0, 5);
-    const isOwnDept = (dept.code === subjOwnDept);
+  subjectsData = { subjects: {} };
+  if (fs.existsSync(subjectsPath)) {
+    subjectsData = JSON.parse(fs.readFileSync(subjectsPath, 'utf8'));
+    console.log(`Loaded subjects: ${subjectsData.totalSubjects} subjects from ${subjectsData.departmentsWithSubjects} departments`);
+  }
 
-    if (!uniqueSubjects.has(subj.code) || isOwnDept) {
-      uniqueSubjects.set(subj.code, {
-        ...subj,
-        deptCode: dept.code,
-        deptName: dept.name,
-        level: dept.level,
-        category: dept.category,
-        group: dept.group,
-        pdf: dept.pdf
-      });
+  pagesData = {};
+  if (fs.existsSync(pagesPath)) {
+    pagesData = JSON.parse(fs.readFileSync(pagesPath, 'utf8'));
+    console.log(`Loaded page numbers for ${Object.keys(pagesData).length} subjects`);
+  }
+
+  const uniqueSubjects = new Map();
+  for (const dept of departments) {
+    const deptSubjects = subjectsData.subjects[dept.code] || [];
+    for (const subj of deptSubjects) {
+      const subjOwnDept = subj.code.substring(0, 5);
+      const isOwnDept = (dept.code === subjOwnDept);
+      if (!uniqueSubjects.has(subj.code) || isOwnDept) {
+        uniqueSubjects.set(subj.code, {
+          ...subj,
+          deptCode: dept.code,
+          deptName: dept.name,
+          level: dept.level,
+          category: dept.category,
+          group: dept.group,
+          pdf: dept.pdf
+        });
+      }
     }
   }
+  flatSubjects = Array.from(uniqueSubjects.values());
+  console.log(`Loaded ${departments.length} departments, ${flatSubjects.length} unique subjects`);
 }
-const flatSubjects = Array.from(uniqueSubjects.values());
+
+loadData();
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -331,7 +335,152 @@ app.get('/api/extract-pages', (req, res) => {
   });
 });
 
+// --- Sync: Check PDF links ---
+function headCheck(url) {
+  return new Promise((resolve) => {
+    try {
+      const urlObj = new URL(url);
+      const req = https.request({
+        hostname: urlObj.hostname,
+        path: urlObj.pathname,
+        method: 'HEAD',
+        timeout: 10000,
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      }, (res) => {
+        resolve(res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    } catch { resolve(false); }
+  });
+}
+
+app.get('/api/sync-check', async (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  let aborted = false;
+  req.on('close', () => { aborted = true; });
+
+  const total = departments.length;
+  const concurrency = 5;
+
+  async function checkDept(dept, index) {
+    if (aborted) return null;
+
+    res.write(`data: ${JSON.stringify({ type: 'progress', current: index + 1, total, code: dept.code, name: dept.name })}\n\n`);
+
+    const currentUrl = pdfBaseUrl + dept.pdf;
+    const currentOk = await headCheck(currentUrl);
+
+    // Parse version: "20101v8.pdf" -> code=20101, ver=8
+    const match = dept.pdf.match(/^(\d{5})(v(\d+))?\.pdf$/);
+    if (!match) {
+      return { code: dept.code, name: dept.name, level: dept.level, currentPdf: dept.pdf, status: currentOk ? 'ok' : 'broken', latestPdf: null };
+    }
+
+    const code = match[1];
+    const currentVer = match[3] ? parseInt(match[3]) : 0;
+    let bestVer = currentOk ? currentVer : 0;
+    let bestPdf = currentOk ? dept.pdf : null;
+
+    // Check higher versions (find newest)
+    let misses = 0;
+    for (let v = currentVer + 1; v <= currentVer + 8 && !aborted; v++) {
+      const tryPdf = `${code}v${v}.pdf`;
+      if (await headCheck(pdfBaseUrl + tryPdf)) {
+        bestVer = v;
+        bestPdf = tryPdf;
+        misses = 0;
+      } else {
+        misses++;
+        if (misses >= 2) break;
+      }
+    }
+
+    // If still broken, try lower versions + no-version
+    if (!bestPdf && !aborted) {
+      for (let v = currentVer - 1; v >= 1; v--) {
+        if (await headCheck(pdfBaseUrl + `${code}v${v}.pdf`)) {
+          bestPdf = `${code}v${v}.pdf`;
+          break;
+        }
+      }
+      if (!bestPdf) {
+        if (await headCheck(pdfBaseUrl + `${code}.pdf`)) {
+          bestPdf = `${code}.pdf`;
+        }
+      }
+    }
+
+    const hasUpdate = bestPdf && bestPdf !== dept.pdf;
+    let status;
+    if (currentOk && !hasUpdate) status = 'ok';
+    else if (currentOk && hasUpdate) status = 'update';
+    else if (!currentOk && hasUpdate) status = 'broken-fixable';
+    else status = 'broken';
+
+    return { code: dept.code, name: dept.name, level: dept.level, currentPdf: dept.pdf, status, latestPdf: hasUpdate ? bestPdf : null };
+  }
+
+  // Process in batches
+  const results = [];
+  for (let i = 0; i < total && !aborted; i += concurrency) {
+    const batch = departments.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map((d, j) => checkDept(d, i + j))
+    );
+    for (const r of batchResults) {
+      if (r) {
+        results.push(r);
+        res.write(`data: ${JSON.stringify({ type: 'result', ...r })}\n\n`);
+      }
+    }
+  }
+
+  if (!aborted) {
+    const summary = {
+      type: 'done',
+      total: results.length,
+      ok: results.filter(r => r.status === 'ok').length,
+      update: results.filter(r => r.status === 'update').length,
+      broken: results.filter(r => r.status === 'broken').length,
+      fixable: results.filter(r => r.status === 'broken-fixable').length
+    };
+    res.write(`data: ${JSON.stringify(summary)}\n\n`);
+  }
+  res.end();
+});
+
+// --- Sync: Apply updates ---
+app.post('/api/sync-apply', (req, res) => {
+  const { updates } = req.body;
+  if (!updates || !Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'No updates provided' });
+  }
+
+  try {
+    const data = JSON.parse(fs.readFileSync(deptFilePath, 'utf8'));
+    let count = 0;
+    for (const { code, newPdf } of updates) {
+      const dept = data.departments.find(d => d.code === code);
+      if (dept && dept.pdf !== newPdf) {
+        dept.pdf = newPdf;
+        count++;
+      }
+    }
+    fs.writeFileSync(deptFilePath, JSON.stringify(data, null, 2), 'utf8');
+    loadData(); // Reload all data in memory
+    res.json({ success: true, updated: count });
+  } catch (e) {
+    console.error('Sync apply error:', e);
+    res.status(500).json({ error: 'Failed to apply updates' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Loaded ${departments.length} departments, ${flatSubjects.length} unique subjects`);
 });
