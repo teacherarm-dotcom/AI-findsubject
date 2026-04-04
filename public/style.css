@@ -1516,20 +1516,22 @@ footer p {
 }
 
 footer a {
-  color: var(--primary-light);
+  color: white;
   text-decoration: none;
   font-weight: 500;
   transition: var(--transition);
 }
 
 footer a:hover {
-  color: white;
+  color: #fde047;
   text-decoration: underline;
 }
 
 .footer-note {
   font-size: 0.78rem;
-  opacity: 0.6;
+  color: #fde047;
+  font-weight: 700;
+  opacity: 1;
 }
 
 /* ===== Highlight ===== */
