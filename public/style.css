@@ -1640,33 +1640,71 @@ mark {
   }
 
   .result-card {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 10px;
-    padding: 14px 16px;
+    padding: 12px 14px;
   }
 
   .result-code {
-    min-width: 60px;
-    padding: 8px 10px;
-    font-size: 0.85rem;
+    min-width: 54px;
+    padding: 6px 8px;
+    font-size: 0.78rem;
+  }
+
+  .result-info {
+    min-width: 0;
+  }
+
+  .result-name {
+    font-size: 0.9rem;
   }
 
   .btn-pdf {
-    width: 100%;
-    justify-content: center;
-    padding: 12px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    gap: 4px;
+  }
+
+  .btn-pdf .material-symbols-rounded {
+    font-size: 16px;
+  }
+
+  /* Subject cards */
+  .subject-card {
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .subject-code {
+    min-width: 72px;
+    padding: 5px 8px;
+    font-size: 0.75rem;
+  }
+
+  .subject-name-th {
+    font-size: 0.85rem;
+  }
+
+  .subject-name-en {
+    font-size: 0.72rem;
   }
 
   .subject-actions {
-    width: 100%;
+    flex-shrink: 0;
   }
 
   .subject-actions .btn-pdf,
   .subject-actions .btn-find-page,
   .subject-actions .btn-page-found {
-    flex: 1;
-    justify-content: center;
-    padding: 10px;
+    padding: 7px 10px;
+    font-size: 0.72rem;
+    gap: 3px;
+  }
+
+  .subject-actions .btn-pdf .material-symbols-rounded,
+  .subject-actions .btn-find-page .material-symbols-rounded,
+  .subject-actions .btn-page-found .material-symbols-rounded {
+    font-size: 14px;
   }
 
   .category-header {
@@ -1686,6 +1724,55 @@ mark {
 
   .stat-number {
     font-size: 1.2rem;
+  }
+
+  /* Cards: stack vertically on very small screens */
+  .result-card {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .result-code {
+    min-width: auto;
+  }
+
+  .result-info {
+    flex: 1 1 calc(100% - 80px);
+  }
+
+  .btn-pdf {
+    width: 100%;
+    justify-content: center;
+    padding: 10px;
+    font-size: 0.8rem;
+  }
+
+  .subject-card {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .subject-code {
+    min-width: auto;
+  }
+
+  .subject-info {
+    flex: 1 1 calc(100% - 90px);
+  }
+
+  .subject-actions {
+    width: 100%;
+  }
+
+  .subject-actions .btn-pdf,
+  .subject-actions .btn-find-page,
+  .subject-actions .btn-page-found {
+    flex: 1;
+    justify-content: center;
+    padding: 8px;
+    font-size: 0.75rem;
   }
 
   .stat-label {
