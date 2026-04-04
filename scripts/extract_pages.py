@@ -43,14 +43,21 @@ DETAIL_KEYWORDS = [
 DETAIL_KEYWORD_RE = re.compile(r'ค.{0,2}อธิบายรายวิชา')
 
 
-def download_pdf(url):
-    tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-    try:
-        urllib.request.urlretrieve(url, tmp.name)
-        return tmp.name
-    except Exception as e:
-        os.unlink(tmp.name)
-        return None
+def download_pdf(url, retries=3):
+    import time
+    for attempt in range(retries):
+        tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                tmp.write(resp.read())
+            tmp.close()
+            return tmp.name
+        except Exception as e:
+            os.unlink(tmp.name)
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
+    return None
 
 
 def is_detail_page(text):
@@ -140,6 +147,10 @@ def main():
 
         pdf_url = PDF_BASE_URL + dept["pdf"]
         print(f"[{i+1}/{total_depts}] {dept['level']} {dept_code} {dept['name']} ({len(target_codes)} subjects)...", flush=True)
+
+        if i > 0:
+            import time
+            time.sleep(1)  # Avoid rate limiting
 
         pdf_path = download_pdf(pdf_url)
         if not pdf_path:
