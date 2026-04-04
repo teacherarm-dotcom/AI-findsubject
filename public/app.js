@@ -13,7 +13,6 @@ const acList = document.getElementById('autocompleteList');
 
 let debounceTimer;
 let acDebounceTimer;
-let currentTab = 'all'; // 'all', 'departments', 'subjects'
 let acActiveIndex = -1;
 let acSuppressed = false; // suppress autocomplete when full search fires
 
@@ -219,7 +218,7 @@ async function doSearch() {
   if (q) params.set('q', q);
   if (level) params.set('level', level);
   if (category) params.set('category', category);
-  if (currentTab !== 'all') params.set('type', currentTab);
+  params.set('type', 'subjects');
 
   const res = await fetch('/api/search?' + params.toString());
   const data = await res.json();
@@ -234,44 +233,19 @@ function highlightText(text, query) {
 }
 
 function renderResults(data, query) {
-  const { totalDepartments, totalSubjects, departments: depts, subjects: subjs } = data;
+  const { totalSubjects, subjects: subjs } = data;
 
   // Result stats line
   let statsHtml = '';
-  if (totalDepartments > 0 || totalSubjects > 0) {
-    const parts = [];
-    if (totalDepartments > 0) parts.push(`<strong>${totalDepartments}</strong> สาขาวิชา`);
-    if (totalSubjects > 0) parts.push(`<strong>${totalSubjects}</strong> รายวิชา`);
-    statsHtml = 'พบ ' + parts.join(' และ ');
+  if (totalSubjects > 0) {
+    statsHtml = `พบ <strong>${totalSubjects}</strong> รายวิชา`;
   }
   resultStats.innerHTML = statsHtml;
 
-  // Tabs
   let html = '';
-  if (query && (totalDepartments > 0 || totalSubjects > 0)) {
-    html += `
-      <div class="result-tabs">
-        <button class="result-tab ${currentTab === 'all' ? 'active' : ''}" data-tab="all">
-          <span class="material-symbols-rounded">apps</span>
-          ทั้งหมด
-          <span class="tab-count">${totalDepartments + totalSubjects}</span>
-        </button>
-        <button class="result-tab ${currentTab === 'departments' ? 'active' : ''}" data-tab="departments">
-          <span class="material-symbols-rounded">school</span>
-          สาขาวิชา
-          <span class="tab-count">${totalDepartments}</span>
-        </button>
-        <button class="result-tab ${currentTab === 'subjects' ? 'active' : ''}" data-tab="subjects">
-          <span class="material-symbols-rounded">library_books</span>
-          รายวิชา
-          <span class="tab-count">${totalSubjects}</span>
-        </button>
-      </div>
-    `;
-  }
 
   // Empty state
-  if (depts.length === 0 && subjs.length === 0) {
+  if (subjs.length === 0) {
     if (query) {
       html += `
         <div class="empty-state">
@@ -284,63 +258,11 @@ function renderResults(data, query) {
       `;
     }
     resultsContainer.innerHTML = html;
-    attachTabListeners();
     return;
   }
 
-  // Departments section
-  if (depts.length > 0 && currentTab !== 'subjects') {
-    // Group by category
-    const grouped = {};
-    depts.forEach(r => {
-      if (!grouped[r.category]) grouped[r.category] = [];
-      grouped[r.category].push(r);
-    });
-
-    for (const [category, items] of Object.entries(grouped)) {
-      const icon = categoryIcons[category] || 'folder';
-
-      html += `<div class="category-group">`;
-      html += `
-        <div class="category-header">
-          <div class="category-icon">
-            <span class="material-symbols-rounded">${icon}</span>
-          </div>
-          <span class="category-title">${category}</span>
-          <span class="category-count">${items.length}</span>
-        </div>
-      `;
-
-      items.forEach(r => {
-        const isPvs = r.level === 'ปวส.';
-        const badgeClass = isPvs ? 'badge-pvs' : 'badge-pvch';
-        const codeClass = isPvs ? 'result-code pvs' : 'result-code';
-        const displayName = highlightText(r.name, query);
-
-        html += `
-          <div class="result-card">
-            <div class="${codeClass}">${r.code}</div>
-            <div class="result-info">
-              <div class="result-name">${displayName}</div>
-              <div class="result-meta">
-                <span class="badge ${badgeClass}">${r.level}</span>
-                <span class="result-group">${r.group}</span>
-              </div>
-            </div>
-            <a class="btn-pdf" href="${r.pdfUrl}" target="_blank" rel="noopener">
-              <span class="material-symbols-rounded">description</span>
-              ดู PDF
-            </a>
-          </div>
-        `;
-      });
-
-      html += `</div>`;
-    }
-  }
-
   // Subjects section
-  if (subjs.length > 0 && currentTab !== 'departments') {
+  if (subjs.length > 0) {
     // Group subjects by department
     const grouped = {};
     subjs.forEach(s => {
@@ -407,16 +329,6 @@ function renderResults(data, query) {
   }
 
   resultsContainer.innerHTML = html;
-  attachTabListeners();
-}
-
-function attachTabListeners() {
-  document.querySelectorAll('.result-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      currentTab = tab.dataset.tab;
-      doSearch();
-    });
-  });
 }
 
 // ===== Event listeners =====
@@ -482,7 +394,6 @@ searchClear.addEventListener('click', () => {
   searchClear.hidden = true;
   searchInput.focus();
   hideAutocomplete();
-  currentTab = 'all';
   doSearch();
 });
 
@@ -500,7 +411,6 @@ document.addEventListener('keydown', (e) => {
     if (searchInput.value && acDropdown.hidden) {
       searchInput.value = '';
       searchClear.hidden = true;
-      currentTab = 'all';
       doSearch();
     }
   }
