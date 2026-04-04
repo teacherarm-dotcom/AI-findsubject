@@ -63,6 +63,11 @@ def is_detail_page(text):
     return False
 
 
+# Pattern: subject code followed by Thai name and T-P-N credit on the same line
+# This identifies a subject HEADING (not just a reference)
+HEADING_RE = re.compile(r'(\d{5})[–\-]\s*(\d{4})\s+.+?\s+\d+[–\-]\d+[–\-]\d+')
+
+
 def extract_pages_from_pdf(pdf_path, target_codes):
     """Find detail page numbers for target subject codes in a PDF."""
     import pdfplumber
@@ -76,24 +81,15 @@ def extract_pages_from_pdf(pdf_path, target_codes):
                 if not text:
                     continue
 
-                # Check if this is a detail page first (has section keywords)
+                # Check if this is a detail page (has section keywords)
                 if not is_detail_page(text):
                     continue
 
-                # Only check subject codes in the TOP of the page (first ~300 chars)
-                # Detail pages always start with the subject code near the top
-                lines = text.split('\n')
-                top_text = '\n'.join(lines[:6])  # first 6 lines
-
-                top_codes = set()
-                for m in CODE_RE.finditer(top_text):
+                # Find subject codes that appear as HEADINGS (code + name + credit)
+                # This filters out codes that are just referenced in text
+                for m in HEADING_RE.finditer(text):
                     code = f"{m.group(1)}-{m.group(2)}"
-                    if code in target_codes:
-                        top_codes.add(code)
-
-                # Assign page only to subjects whose code appears at top
-                for code in top_codes:
-                    if code not in pages_map:
+                    if code in target_codes and code not in pages_map:
                         pages_map[code] = page.page_number
     except Exception as e:
         print(f"    Error: {e}", file=sys.stderr)
@@ -106,11 +102,30 @@ def main():
     # IMPORTANT: Only search for subjects whose code prefix matches the dept code
     # e.g. dept 20101 should only search for 20101-xxxx, NOT 20000-xxxx
     dept_subjects = {}
+    # Track all subject codes that have their own dept
+    all_own_dept_codes = set()
+    dept_lookup_map = {d["code"]: d for d in departments}
+
     for dept_code, subjs in subjects_data["subjects"].items():
         codes = set(s["code"] for s in subjs)
         own_codes = set(c for c in codes if c[:5] == dept_code)
         if own_codes:
             dept_subjects[dept_code] = own_codes
+            all_own_dept_codes.update(own_codes)
+
+    # Find "orphan" subjects: prefix doesn't match any existing dept
+    # e.g. 30200-xxxx exists in dept 30201/30202 but dept 30200 doesn't exist
+    # Assign them to the first dept that contains them
+    for dept_code, subjs in subjects_data["subjects"].items():
+        for s in subjs:
+            code = s["code"]
+            prefix = code[:5]
+            if prefix not in dept_lookup_map and code not in all_own_dept_codes:
+                # No dept for this prefix, assign to current dept
+                if dept_code not in dept_subjects:
+                    dept_subjects[dept_code] = set()
+                dept_subjects[dept_code].add(code)
+                all_own_dept_codes.add(code)  # prevent duplicates
 
     # Get unique dept codes that have subjects
     dept_lookup = {d["code"]: d for d in departments}
