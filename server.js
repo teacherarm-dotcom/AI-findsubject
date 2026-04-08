@@ -97,7 +97,7 @@ app.get('/api/autocomplete', (req, res) => {
       deptName: s.deptName,
       level: s.level,
       pdfUrl: pdfBaseUrl + s.pdf,
-      pdfPage: pagesData[s.code] || 0
+      pdfPage: (pagesData[s.deptCode] && pagesData[s.deptCode][s.code]) || 0
     }));
 
   res.json({
@@ -160,7 +160,7 @@ app.get('/api/search', (req, res) => {
     category: s.category,
     group: s.group,
     pdfUrl: pdfBaseUrl + s.pdf,
-    pdfPage: pagesData[s.code] || 0
+    pdfPage: (pagesData[s.deptCode] && pagesData[s.deptCode][s.code]) || 0
   }));
 
   res.json({

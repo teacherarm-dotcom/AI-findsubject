@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 Extract PDF page numbers for all subjects in all department PDFs.
-Output: data/pages.json  →  { "20000-1101": 9, "20101-2001": 45, ... }
+Output: data/pages.json  →  { "21701": { "20000-1101": 9, ... }, ... }
 
-Each page number is the detail page (contains จุดประสงค์/สมรรถนะ/คำอธิบาย)
-for the subject in its own department's PDF.
+Runs concurrent downloads for speed.
 """
 
 import json
@@ -12,8 +11,10 @@ import os
 import re
 import sys
 import tempfile
+import time
 import urllib.request
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 warnings.filterwarnings("ignore")
 
@@ -23,155 +24,130 @@ DEPT_FILE = os.path.join(PROJECT_DIR, "data", "departments.json")
 SUBJECTS_FILE = os.path.join(PROJECT_DIR, "data", "subjects.json")
 OUTPUT_FILE = os.path.join(PROJECT_DIR, "data", "pages.json")
 
-with open(DEPT_FILE, "r", encoding="utf-8") as f:
-    dept_data = json.load(f)
-
-PDF_BASE_URL = dept_data["pdfBaseUrl"]
-departments = dept_data["departments"]
-
-with open(SUBJECTS_FILE, "r", encoding="utf-8") as f:
-    subjects_data = json.load(f)
-
 CODE_RE = re.compile(r'(\d{5})[–\-](\d{4})')
-
-# Keywords that indicate a detail page (not just a listing)
 DETAIL_KEYWORDS = [
-    'จุดประสงค', 'สมรรถนะรายวิชา',
-    'คําอธิบายรายวิชา', 'คำอธิบายรายวิชา',
-    'Course Objectives', 'Course Description'
+    'จุดประสงค',
+    'สมรรถนะรายวิชา',
+    'คําอธิบายรายวิชา',
+    'คำอธิบายรายวิชา',
 ]
-DETAIL_KEYWORD_RE = re.compile(r'ค.{0,2}อธิบายรายวิชา')
+
+MAX_WORKERS = 6
 
 
 def download_pdf(url, retries=3):
-    import time
     for attempt in range(retries):
         tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=120) as resp:
                 tmp.write(resp.read())
             tmp.close()
             return tmp.name
-        except Exception as e:
-            os.unlink(tmp.name)
+        except Exception:
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
             if attempt < retries - 1:
                 time.sleep(2 * (attempt + 1))
     return None
 
 
-def is_detail_page(text):
-    """Check if page contains detail section keywords."""
-    for kw in DETAIL_KEYWORDS:
-        if kw in text:
-            return True
-    if DETAIL_KEYWORD_RE.search(text):
-        return True
-    return False
-
-
-# Pattern: subject code followed by Thai name and T-P-N credit on the same line
-# This identifies a subject HEADING (not just a reference)
-HEADING_RE = re.compile(r'(\d{5})[–\-]\s*(\d{4})\s+.+?\s+\d+[–\-]\d+[–\-]\d+')
-
-
-def extract_pages_from_pdf(pdf_path, target_codes):
-    """Find detail page numbers for target subject codes in a PDF."""
-    import pdfplumber
-
+def extract_page_map(pdf_path, valid_codes):
+    import pypdfium2 as pdfium
     pages_map = {}
-
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if not text:
+        pdf = pdfium.PdfDocument(pdf_path)
+        try:
+            for i in range(len(pdf)):
+                page = pdf[i]
+                tp = page.get_textpage()
+                text = tp.get_text_range() or ''
+                tp.close()
+                if not any(kw in text for kw in DETAIL_KEYWORDS):
                     continue
-
-                # Check if this is a detail page (has section keywords)
-                if not is_detail_page(text):
+                codes = CODE_RE.findall(text)
+                if not codes:
                     continue
-
-                # Find subject codes that appear as HEADINGS (code + name + credit)
-                # This filters out codes that are just referenced in text
-                for m in HEADING_RE.finditer(text):
-                    code = f"{m.group(1)}-{m.group(2)}"
-                    if code in target_codes and code not in pages_map:
-                        pages_map[code] = page.page_number
+                first = f"{codes[0][0]}-{codes[0][1]}"
+                if first in valid_codes and first not in pages_map:
+                    pages_map[first] = i + 1
+        finally:
+            pdf.close()
     except Exception as e:
         print(f"    Error: {e}", file=sys.stderr)
-
     return pages_map
 
 
+def process_dept(dept, base_url, valid_codes):
+    pdf_url = base_url + dept['pdf']
+    pdf_path = download_pdf(pdf_url)
+    if not pdf_path:
+        return dept['code'], None, 'download_failed'
+    try:
+        pages = extract_page_map(pdf_path, valid_codes)
+        return dept['code'], pages, None
+    finally:
+        try:
+            os.unlink(pdf_path)
+        except Exception:
+            pass
+
+
 def main():
-    # Build mapping: dept_code -> set of subject codes to search in that dept's PDF
-    # IMPORTANT: Only search for subjects whose code prefix matches the dept code
-    # e.g. dept 20101 should only search for 20101-xxxx, NOT 20000-xxxx
-    dept_subjects = {}
-    # Track all subject codes that have their own dept
-    all_own_dept_codes = set()
-    dept_lookup_map = {d["code"]: d for d in departments}
+    with open(DEPT_FILE, "r", encoding="utf-8") as f:
+        dept_data = json.load(f)
+    base_url = dept_data["pdfBaseUrl"]
+    departments = dept_data["departments"]
 
-    for dept_code, subjs in subjects_data["subjects"].items():
-        codes = set(s["code"] for s in subjs)
-        own_codes = set(c for c in codes if c[:5] == dept_code)
-        if own_codes:
-            dept_subjects[dept_code] = own_codes
-            all_own_dept_codes.update(own_codes)
+    with open(SUBJECTS_FILE, "r", encoding="utf-8") as f:
+        subjects_data = json.load(f)
 
-    # Find "orphan" subjects: prefix doesn't match any existing dept
-    # e.g. 30200-xxxx exists in dept 30201/30202 but dept 30200 doesn't exist
-    # Assign them to the first dept that contains them
-    for dept_code, subjs in subjects_data["subjects"].items():
+    valid_codes = set()
+    for _, subjs in subjects_data["subjects"].items():
         for s in subjs:
-            code = s["code"]
-            prefix = code[:5]
-            if prefix not in dept_lookup_map and code not in all_own_dept_codes:
-                # No dept for this prefix, assign to current dept
-                if dept_code not in dept_subjects:
-                    dept_subjects[dept_code] = set()
-                dept_subjects[dept_code].add(code)
-                all_own_dept_codes.add(code)  # prevent duplicates
-
-    # Get unique dept codes that have subjects
-    dept_lookup = {d["code"]: d for d in departments}
+            valid_codes.add(s["code"])
 
     all_pages = {}
-    total_depts = len(dept_subjects)
-
-    for i, (dept_code, target_codes) in enumerate(dept_subjects.items()):
-        dept = dept_lookup.get(dept_code)
-        if not dept:
-            continue
-
-        pdf_url = PDF_BASE_URL + dept["pdf"]
-        print(f"[{i+1}/{total_depts}] {dept['level']} {dept_code} {dept['name']} ({len(target_codes)} subjects)...", flush=True)
-
-        if i > 0:
-            import time
-            time.sleep(1)  # Avoid rate limiting
-
-        pdf_path = download_pdf(pdf_url)
-        if not pdf_path:
-            print(f"  ✗ Download failed", flush=True)
-            continue
-
+    if os.path.exists(OUTPUT_FILE):
         try:
-            pages = extract_pages_from_pdf(pdf_path, target_codes)
-            all_pages.update(pages)
-            found = len(pages)
-            print(f"  ✓ Found {found}/{len(target_codes)} detail pages", flush=True)
-        finally:
-            os.unlink(pdf_path)
+            with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+            if existing and not isinstance(next(iter(existing.values())), int):
+                all_pages = existing
+                print(f"Resuming with {sum(len(v) for v in all_pages.values())} entries", flush=True)
+        except Exception:
+            pass
 
-    # Save
+    todo = [d for d in departments if d['code'] not in all_pages or not all_pages.get(d['code'])]
+    print(f"Processing {len(todo)}/{len(departments)} departments with {MAX_WORKERS} workers...", flush=True)
+
+    completed = 0
+    total = len(todo)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {pool.submit(process_dept, d, base_url, valid_codes): d for d in todo}
+        for fut in as_completed(futures):
+            d = futures[fut]
+            try:
+                code, pages, err = fut.result()
+            except Exception as e:
+                code, pages, err = d['code'], None, str(e)
+            completed += 1
+            if pages is None:
+                print(f"[{completed}/{total}] {code} {d['name']}  ✗ {err}", flush=True)
+            else:
+                all_pages[code] = pages
+                print(f"[{completed}/{total}] {code} {d['name']}  ✓ {len(pages)}", flush=True)
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                json.dump(all_pages, f, ensure_ascii=False, indent=2)
+
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(all_pages, f, ensure_ascii=False, indent=2)
 
+    total_entries = sum(len(v) for v in all_pages.values())
     print()
-    print(f"Done! Found page numbers for {len(all_pages)} subjects")
-    print(f"Output saved to: {OUTPUT_FILE}")
+    print(f"Done! {len(all_pages)} depts, {total_entries} page mappings")
 
 
 if __name__ == "__main__":
