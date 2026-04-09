@@ -56,6 +56,50 @@ function loadData() {
 
 loadData();
 
+// Resolve correct PDF + page for a subject.
+// Falls back to the owning dept's PDF (e.g. core 20000 / 30000, or another dept
+// whose code prefix matches the subject) when the subject is not found in its
+// own dept's PDF.
+// Index: subject code -> [deptCode, page] for first dept that has the page,
+// built once after pages.json loads. Used as a last-resort fallback when the
+// subject is not found in its own dept's PDF nor its owner-prefix dept's PDF.
+let codeToDeptPage = {};
+function buildCodeIndex() {
+  codeToDeptPage = {};
+  for (const [dCode, pages] of Object.entries(pagesData)) {
+    for (const [sCode, page] of Object.entries(pages)) {
+      if (page && !codeToDeptPage[sCode]) {
+        codeToDeptPage[sCode] = [dCode, page];
+      }
+    }
+  }
+}
+buildCodeIndex();
+
+function resolvePdf(subj) {
+  const ownDept = subj.deptCode;
+  const ownerDept = subj.code.substring(0, 5);
+  let page = (pagesData[ownDept] && pagesData[ownDept][subj.code]) || 0;
+  let pdfFile = subj.pdf;
+  if (!page && ownerDept !== ownDept) {
+    const ownerPage = pagesData[ownerDept] && pagesData[ownerDept][subj.code];
+    if (ownerPage) {
+      page = ownerPage;
+      const ownerDeptObj = departments.find(d => d.code === ownerDept);
+      if (ownerDeptObj) pdfFile = ownerDeptObj.pdf;
+    }
+  }
+  if (!page && codeToDeptPage[subj.code]) {
+    const [fbDept, fbPage] = codeToDeptPage[subj.code];
+    const fbDeptObj = departments.find(d => d.code === fbDept);
+    if (fbDeptObj) {
+      page = fbPage;
+      pdfFile = fbDeptObj.pdf;
+    }
+  }
+  return { pdfUrl: pdfBaseUrl + pdfFile, pdfPage: page };
+}
+
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -88,17 +132,20 @@ app.get('/api/autocomplete', (req, res) => {
       (s.nameEn && s.nameEn.toLowerCase().includes(q))
     )
     .slice(0, 8)
-    .map(s => ({
-      code: s.code,
-      nameTh: s.nameTh,
-      nameEn: s.nameEn,
-      credit: s.credit,
-      deptCode: s.deptCode,
-      deptName: s.deptName,
-      level: s.level,
-      pdfUrl: pdfBaseUrl + s.pdf,
-      pdfPage: (pagesData[s.deptCode] && pagesData[s.deptCode][s.code]) || 0
-    }));
+    .map(s => {
+      const r = resolvePdf(s);
+      return {
+        code: s.code,
+        nameTh: s.nameTh,
+        nameEn: s.nameEn,
+        credit: s.credit,
+        deptCode: s.deptCode,
+        deptName: s.deptName,
+        level: s.level,
+        pdfUrl: r.pdfUrl,
+        pdfPage: r.pdfPage
+      };
+    });
 
   res.json({
     departments: deptResults,
@@ -149,19 +196,22 @@ app.get('/api/search', (req, res) => {
     pdfUrl: pdfBaseUrl + d.pdf
   }));
 
-  const mappedSubjects = subjResults.slice(0, 200).map(s => ({
-    code: s.code,
-    nameTh: s.nameTh,
-    nameEn: s.nameEn,
-    credit: s.credit,
-    deptCode: s.deptCode,
-    deptName: s.deptName,
-    level: s.level,
-    category: s.category,
-    group: s.group,
-    pdfUrl: pdfBaseUrl + s.pdf,
-    pdfPage: (pagesData[s.deptCode] && pagesData[s.deptCode][s.code]) || 0
-  }));
+  const mappedSubjects = subjResults.slice(0, 200).map(s => {
+    const r = resolvePdf(s);
+    return {
+      code: s.code,
+      nameTh: s.nameTh,
+      nameEn: s.nameEn,
+      credit: s.credit,
+      deptCode: s.deptCode,
+      deptName: s.deptName,
+      level: s.level,
+      category: s.category,
+      group: s.group,
+      pdfUrl: r.pdfUrl,
+      pdfPage: r.pdfPage
+    };
+  });
 
   res.json({
     totalDepartments: mappedDepts.length,

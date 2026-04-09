@@ -25,9 +25,10 @@ SUBJECTS_FILE = os.path.join(PROJECT_DIR, "data", "subjects.json")
 OUTPUT_FILE = os.path.join(PROJECT_DIR, "data", "pages.json")
 
 CODE_RE = re.compile(r'(\d{5})[–\-](\d{4})')
-# Subject detail page: code followed (within ~120 chars) by a credit pattern X-Y-Z
+# Subject detail page: code followed (within ~150 chars) by a credit pattern X-Y-Z
+# where X/Y/Z can be 1-2 digits or "*", and separators can be hyphen or en-dash.
 SUBJECT_HEADER_RE = re.compile(
-    r'(\d{5})[–\-](\d{4})[\s\S]{1,120}?\b\d{1,2}-\d{1,2}-\d{1,2}\b'
+    r'(\d{5})[–\-](\d{4})[\s\S]{1,150}?[\d*]{1,2}\s*[–\-]\s*[\d*]{1,2}\s*[–\-]\s*[\d*]{1,2}'
 )
 DETAIL_KEYWORDS = [
     'จุดประสงค',
