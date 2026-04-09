@@ -1,9 +1,9 @@
 name: Sync PDF Links
 
 on:
-  schedule:
-    # Run at midnight Thailand time (17:00 UTC previous day)
-    - cron: '0 17 * * *'
+  # schedule disabled to save GitHub Actions cost — trigger manually when needed
+  # schedule:
+  #   - cron: '0 17 * * *'
   workflow_dispatch: # Allow manual trigger
 
 jobs:
