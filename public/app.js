@@ -15,6 +15,9 @@ let debounceTimer;
 let acDebounceTimer;
 let acActiveIndex = -1;
 let acSuppressed = false; // suppress autocomplete when full search fires
+let currentOffset = 0;
+let currentHasMore = false;
+let isLoadingMore = false;
 
 // Category icon mapping
 const categoryIcons = {
@@ -34,18 +37,22 @@ const categoryIcons = {
 
 // ===== Stats =====
 async function loadStats() {
-  const res = await fetch('/api/stats');
-  const data = await res.json();
-  animateNumber(statTotal, data.total);
-  animateNumber(statPvch, data.pvch);
-  animateNumber(statPvs, data.pvs);
-  if (statSubjects) animateNumber(statSubjects, data.subjects);
-  // Show last sync date in footer
-  const footerSync = document.getElementById('footerSync');
-  if (footerSync && data.lastSync) {
-    const d = new Date(data.lastSync);
-    const thaiDate = d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
-    footerSync.innerHTML = `<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">sync</span> ข้อมูล ณ วันที่ ${thaiDate}`;
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    animateNumber(statTotal, data.total);
+    animateNumber(statPvch, data.pvch);
+    animateNumber(statPvs, data.pvs);
+    if (statSubjects) animateNumber(statSubjects, data.subjects);
+    const footerSync = document.getElementById('footerSync');
+    if (footerSync && data.lastSync) {
+      const d = new Date(data.lastSync);
+      const thaiDate = d.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+      footerSync.innerHTML = `<span class="material-symbols-rounded" style="font-size:14px;vertical-align:middle;">sync</span> ข้อมูล ณ วันที่ ${escapeHtml(thaiDate)}`;
+    }
+  } catch (e) {
+    console.error('loadStats error:', e);
   }
 }
 
@@ -65,14 +72,19 @@ function animateNumber(el, target) {
 
 // ===== Categories =====
 async function loadCategories() {
-  const res = await fetch('/api/categories');
-  const categories = await res.json();
-  categories.forEach(cat => {
-    const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = cat;
-    categoryFilter.appendChild(opt);
-  });
+  try {
+    const res = await fetch('/api/categories');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const categories = await res.json();
+    categories.forEach(cat => {
+      const opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      categoryFilter.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('loadCategories error:', e);
+  }
 }
 
 // ===== Autocomplete =====
@@ -86,11 +98,13 @@ async function doAutocomplete() {
 
   try {
     const res = await fetch('/api/autocomplete?q=' + encodeURIComponent(q));
-    if (acSuppressed) return; // Full search already fired, don't show autocomplete
+    if (acSuppressed) return;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (acSuppressed) return;
     renderAutocomplete(data, q);
   } catch (e) {
+    console.error('Autocomplete error:', e);
     hideAutocomplete();
   }
 }
@@ -214,23 +228,64 @@ function selectAutocompleteItem() {
 }
 
 // ===== Search =====
-async function doSearch() {
+function buildSearchParams() {
+  const params = new URLSearchParams();
   const q = searchInput.value.trim();
   const level = levelFilter.value;
   const category = categoryFilter.value;
-
-  searchClear.hidden = !q;
-
-  const params = new URLSearchParams();
   if (q) params.set('q', q);
   if (level) params.set('level', level);
   if (category) params.set('category', category);
   params.set('type', 'subjects');
+  return params;
+}
 
-  const res = await fetch('/api/search?' + params.toString());
-  const data = await res.json();
+async function doSearch() {
+  searchClear.hidden = !searchInput.value.trim();
+  currentOffset = 0;
 
-  renderResults(data, q);
+  const params = buildSearchParams();
+  params.set('offset', '0');
+
+  try {
+    const res = await fetch('/api/search?' + params.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    currentHasMore = data.hasMore;
+    currentOffset = data.subjects.length;
+    renderResults(data, searchInput.value.trim());
+  } catch (e) {
+    resultStats.innerHTML = '';
+    resultsContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon"><span class="material-symbols-rounded">wifi_off</span></div>
+        <h3>เกิดข้อผิดพลาด</h3>
+        <p>ไม่สามารถโหลดข้อมูลได้ โปรดลองใหม่อีกครั้ง</p>
+      </div>`;
+  }
+}
+
+async function loadMore() {
+  if (isLoadingMore || !currentHasMore) return;
+  isLoadingMore = true;
+  const btn = document.getElementById('btnLoadMore');
+  if (btn) btn.innerHTML = '<span class="material-symbols-rounded spinning">progress_activity</span> กำลังโหลด...';
+
+  const params = buildSearchParams();
+  params.set('offset', String(currentOffset));
+
+  try {
+    const res = await fetch('/api/search?' + params.toString());
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    currentHasMore = data.hasMore;
+    currentOffset += data.subjects.length;
+    appendResults(data, searchInput.value.trim());
+  } catch (e) {
+    if (btn) btn.textContent = 'เกิดข้อผิดพลาด — กดเพื่อลองใหม่';
+  } finally {
+    isLoadingMore = false;
+  }
 }
 
 function highlightText(text, query) {
@@ -341,7 +396,90 @@ function renderResults(data, query) {
     }
   }
 
+  if (currentHasMore) {
+    html += `
+      <div class="load-more-wrapper">
+        <button id="btnLoadMore" class="btn-load-more" onclick="loadMore()">
+          <span class="material-symbols-rounded">expand_more</span>
+          โหลดเพิ่ม (แสดง ${subjs.length} จาก ${totalSubjects})
+        </button>
+      </div>`;
+  }
+
   resultsContainer.innerHTML = html;
+}
+
+function appendResults(data, query) {
+  // Remove existing Load More button
+  const oldBtn = document.getElementById('btnLoadMore');
+  if (oldBtn) oldBtn.parentElement.remove();
+
+  const { subjects: subjs, totalSubjects } = data;
+
+  // Update stats
+  resultStats.innerHTML = `พบ <strong>${totalSubjects}</strong> รายวิชา`;
+
+  let html = '';
+  // Group and render same as renderResults
+  const grouped = {};
+  subjs.forEach(s => {
+    const key = s.deptCode;
+    if (!grouped[key]) {
+      grouped[key] = { deptCode: s.deptCode, deptName: s.deptName, level: s.level, category: s.category, pdfUrl: s.pdfUrl, items: [] };
+    }
+    grouped[key].items.push(s);
+  });
+
+  for (const [deptCode, group] of Object.entries(grouped)) {
+    const icon = categoryIcons[group.category] || 'folder';
+    const isPvs = group.level === 'ปวส.';
+    const badgeClass = isPvs ? 'pvs' : 'pvch';
+
+    html += `
+      <div class="dept-header">
+        <div class="dept-icon"><span class="material-symbols-rounded">${escapeHtml(icon)}</span></div>
+        <div>
+          <div class="dept-title">${escapeHtml(group.deptName)} <span class="ac-item-badge ${badgeClass}">${escapeHtml(group.level)}</span></div>
+          <div class="dept-subtitle">${escapeHtml(group.category)} • ${escapeHtml(deptCode)}</div>
+        </div>
+        <span class="dept-count">${group.items.length} วิชา</span>
+      </div>`;
+
+    group.items.forEach(s => {
+      const cardId = `detail-${s.code}-${s.deptCode}`.replace(/[^a-zA-Z0-9-]/g, '_');
+      const hasPage = s.pdfPage > 0;
+      const pdfLink = hasPage ? `${escapeAttr(s.pdfUrl)}#page=${s.pdfPage}` : escapeAttr(s.pdfUrl);
+      const pdfBtnClass = hasPage ? 'btn-page-found' : 'btn-pdf';
+      const pdfBtnText = hasPage
+        ? `<span class="material-symbols-rounded">menu_book</span> PDF หน้า ${s.pdfPage}`
+        : `<span class="material-symbols-rounded">description</span> PDF`;
+      html += `
+        <div class="subject-card" data-code="${escapeAttr(s.code)}" data-dept="${escapeAttr(s.deptCode)}" data-pdf="${escapeAttr(s.pdfUrl)}" onclick="toggleDetail(this, '${escapeAttr(cardId)}')">
+          <div class="subject-code">${highlightText(s.code, query)}</div>
+          <div class="subject-info">
+            <div class="subject-name-th">${highlightText(s.nameTh, query)}</div>
+            ${s.nameEn ? `<div class="subject-name-en">${highlightText(s.nameEn, query)}</div>` : ''}
+            <div class="subject-meta">${s.credit ? `<span class="subject-credit">${escapeHtml(s.credit)}</span>` : ''}</div>
+          </div>
+          <div class="subject-actions" onclick="event.stopPropagation()">
+            <a class="${pdfBtnClass}" href="${pdfLink}" target="_blank" rel="noopener" title="ดูหลักสูตร ${escapeAttr(group.deptName)}">${pdfBtnText}</a>
+          </div>
+        </div>
+        <div class="subject-detail" id="${cardId}" style="display:none;"></div>`;
+    });
+  }
+
+  if (currentHasMore) {
+    html += `
+      <div class="load-more-wrapper">
+        <button id="btnLoadMore" class="btn-load-more" onclick="loadMore()">
+          <span class="material-symbols-rounded">expand_more</span>
+          โหลดเพิ่ม (แสดง ${currentOffset} จาก ${totalSubjects})
+        </button>
+      </div>`;
+  }
+
+  resultsContainer.insertAdjacentHTML('beforeend', html);
 }
 
 // ===== Event listeners =====

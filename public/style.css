@@ -960,6 +960,30 @@ header h1 {
   animation: spin 1s linear infinite;
 }
 
+/* Load More */
+.load-more-wrapper {
+  text-align: center;
+  padding: 20px 0;
+}
+.btn-load-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 24px;
+  background: var(--bg-card);
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-load-more:hover {
+  background: var(--primary);
+  color: #fff;
+}
+
 /* ===== Subject Detail Panel ===== */
 .subject-card {
   cursor: pointer;

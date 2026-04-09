@@ -1,9 +1,12 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const app = express();
 app.use(cors());
+app.use(compression());
 const PORT = process.env.PORT || 3000;
 
 // --- Data loading (can be re-called after sync) ---
@@ -104,8 +107,16 @@ function resolvePdf(subj) {
   return { pdfUrl: pdfBaseUrl + pdfFile, pdfPage: page };
 }
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Rate limiting
+const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, message: { error: 'Too many requests, please try again later.' } });
+const heavyLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Too many requests, please try again later.' } });
+app.use('/api/', apiLimiter);
+app.use('/api/subject-detail', heavyLimiter);
+app.use('/api/generate-doc', heavyLimiter);
+app.use('/api/find-page', heavyLimiter);
+
+// Serve static files with cache (7 days)
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '7d' }));
 
 // API: Autocomplete suggestions
 app.get('/api/autocomplete', (req, res) => {
@@ -200,7 +211,11 @@ app.get('/api/search', (req, res) => {
     pdfUrl: pdfBaseUrl + d.pdf
   }));
 
-  const mappedSubjects = subjResults.slice(0, 200).map(s => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const totalFiltered = subjResults.length;
+
+  const mappedSubjects = subjResults.slice(offset, offset + limit).map(s => {
     const r = resolvePdf(s);
     return {
       code: s.code,
@@ -219,7 +234,8 @@ app.get('/api/search', (req, res) => {
 
   res.json({
     totalDepartments: mappedDepts.length,
-    totalSubjects: mappedSubjects.length,
+    totalSubjects: totalFiltered,
+    hasMore: offset + limit < totalFiltered,
     departments: type === 'subjects' ? [] : mappedDepts,
     subjects: type === 'departments' ? [] : mappedSubjects
   });
