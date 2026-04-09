@@ -27,6 +27,7 @@ CODE_RE = re.compile(r'(\d{5})[–\-](\d{4})')
 DETAIL_KEYWORDS = [
     'จุดประสงค', 'สมรรถนะรายวิชา',
     'คําอธิบายรายวิชา', 'คำอธิบายรายวิชา',
+    'ผลลัพธ์การเรียนรู้', 'อ้างอิงมาตรฐาน',
 ]
 
 
@@ -56,26 +57,25 @@ def main():
         sys.exit(0)
 
     try:
-        import pypdfium2 as pdfium
+        import fitz
         pdf_page = 0
-        pdf = pdfium.PdfDocument(tmp.name)
+        doc = fitz.open(tmp.name)
         try:
-            for i in range(len(pdf)):
-                page = pdf[i]
-                tp = page.get_textpage()
-                text = tp.get_text_range() or ''
-                tp.close()
+            for i in range(len(doc)):
+                text = doc[i].get_text() or ''
                 if not any(kw in text for kw in DETAIL_KEYWORDS):
                     continue
                 codes = CODE_RE.findall(text)
                 if not codes:
                     continue
-                first = f"{codes[0][0]}-{codes[0][1]}"
-                if first == subject_code:
-                    pdf_page = i + 1
+                for a, b in codes:
+                    if f"{a}-{b}" == subject_code:
+                        pdf_page = i + 1
+                        break
+                if pdf_page:
                     break
         finally:
-            pdf.close()
+            doc.close()
 
         result = {
             "pdfPage": pdf_page,

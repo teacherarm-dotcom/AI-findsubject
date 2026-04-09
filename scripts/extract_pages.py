@@ -25,14 +25,20 @@ SUBJECTS_FILE = os.path.join(PROJECT_DIR, "data", "subjects.json")
 OUTPUT_FILE = os.path.join(PROJECT_DIR, "data", "pages.json")
 
 CODE_RE = re.compile(r'(\d{5})[–\-](\d{4})')
+# Subject detail page: code followed (within ~120 chars) by a credit pattern X-Y-Z
+SUBJECT_HEADER_RE = re.compile(
+    r'(\d{5})[–\-](\d{4})[\s\S]{1,120}?\b\d{1,2}-\d{1,2}-\d{1,2}\b'
+)
 DETAIL_KEYWORDS = [
     'จุดประสงค',
     'สมรรถนะรายวิชา',
     'คําอธิบายรายวิชา',
     'คำอธิบายรายวิชา',
+    'ผลลัพธ์การเรียนรู้',
+    'อ้างอิงมาตรฐาน',
 ]
 
-MAX_WORKERS = 6
+MAX_WORKERS = 4
 
 
 def download_pdf(url, retries=3):
@@ -55,26 +61,35 @@ def download_pdf(url, retries=3):
 
 
 def extract_page_map(pdf_path, valid_codes):
-    import pypdfium2 as pdfium
+    import fitz  # PyMuPDF
     pages_map = {}
     try:
-        pdf = pdfium.PdfDocument(pdf_path)
+        doc = fitz.open(pdf_path)
         try:
-            for i in range(len(pdf)):
-                page = pdf[i]
-                tp = page.get_textpage()
-                text = tp.get_text_range() or ''
-                tp.close()
+            # Pass 1: pages with explicit detail keywords (clean PDFs)
+            for i in range(len(doc)):
+                text = doc[i].get_text() or ''
+                if not text.strip():
+                    continue
                 if not any(kw in text for kw in DETAIL_KEYWORDS):
                     continue
-                codes = CODE_RE.findall(text)
-                if not codes:
+                for a, b in CODE_RE.findall(text):
+                    code = f"{a}-{b}"
+                    if code in valid_codes and code not in pages_map:
+                        pages_map[code] = i + 1
+
+            # Pass 2: structural — code immediately followed by credit X-Y-Z
+            # (works for PDFs whose Thai text is glyph-encoded and breaks keywords)
+            for i in range(len(doc)):
+                text = doc[i].get_text() or ''
+                if not text.strip():
                     continue
-                first = f"{codes[0][0]}-{codes[0][1]}"
-                if first in valid_codes and first not in pages_map:
-                    pages_map[first] = i + 1
+                for a, b in SUBJECT_HEADER_RE.findall(text):
+                    code = f"{a}-{b}"
+                    if code in valid_codes and code not in pages_map:
+                        pages_map[code] = i + 1
         finally:
-            pdf.close()
+            doc.close()
     except Exception as e:
         print(f"    Error: {e}", file=sys.stderr)
     return pages_map
