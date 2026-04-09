@@ -2,7 +2,7 @@ services:
   - type: web
     name: ai-findsubject
     runtime: node
-    buildCommand: npm install && pip install python-docx pdfplumber
+    buildCommand: npm install && pip install -r requirements.txt
     startCommand: node server.js
     envVars:
       - key: NODE_ENV

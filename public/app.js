@@ -122,13 +122,13 @@ function renderAutocomplete(data, query) {
       const isPvs = d.level === 'ปวส.';
       const badgeClass = isPvs ? 'pvs' : 'pvch';
       html += `
-        <div class="ac-item ac-dept" data-index="${i}" data-type="dept" data-code="${d.code}" data-name="${d.name}">
-          <div class="ac-item-code">${d.code}</div>
+        <div class="ac-item ac-dept" data-index="${i}" data-type="dept" data-code="${escapeAttr(d.code)}" data-name="${escapeAttr(d.name)}">
+          <div class="ac-item-code">${escapeHtml(d.code)}</div>
           <div class="ac-item-info">
             <div class="ac-item-name">${highlightText(d.name, query)}</div>
-            <div class="ac-item-meta">${d.category} / ${d.group}</div>
+            <div class="ac-item-meta">${escapeHtml(d.category)} / ${escapeHtml(d.group)}</div>
           </div>
-          <span class="ac-item-badge ${badgeClass}">${d.level}</span>
+          <span class="ac-item-badge ${badgeClass}">${escapeHtml(d.level)}</span>
         </div>
       `;
     });
@@ -144,13 +144,13 @@ function renderAutocomplete(data, query) {
       const isPvs = s.level === 'ปวส.';
       const badgeClass = isPvs ? 'pvs' : 'pvch';
       html += `
-        <div class="ac-item ac-subject" data-index="${departments.length + i}" data-type="subject" data-code="${s.code}" data-name="${s.nameTh}">
-          <div class="ac-item-code">${s.code}</div>
+        <div class="ac-item ac-subject" data-index="${departments.length + i}" data-type="subject" data-code="${escapeAttr(s.code)}" data-name="${escapeAttr(s.nameTh)}">
+          <div class="ac-item-code">${escapeHtml(s.code)}</div>
           <div class="ac-item-info">
             <div class="ac-item-name">${highlightText(s.nameTh, query)}</div>
-            <div class="ac-item-meta">${s.deptName} ${s.credit ? '• ' + s.credit : ''}</div>
+            <div class="ac-item-meta">${escapeHtml(s.deptName)} ${s.credit ? '• ' + escapeHtml(s.credit) : ''}</div>
           </div>
-          <span class="ac-item-badge ${badgeClass}">${s.level}</span>
+          <span class="ac-item-badge ${badgeClass}">${escapeHtml(s.level)}</span>
         </div>
       `;
     });
@@ -234,9 +234,15 @@ async function doSearch() {
 }
 
 function highlightText(text, query) {
-  if (!query) return text;
-  const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-  return text.replace(regex, '<mark>$1</mark>');
+  if (!query) return escapeHtml(text);
+  const safe = escapeHtml(text);
+  const safeQuery = escapeHtml(query);
+  const regex = new RegExp(`(${safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return safe.replace(regex, '<mark>$1</mark>');
+}
+
+function escapeAttr(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function renderResults(data, query) {
@@ -295,11 +301,11 @@ function renderResults(data, query) {
       html += `
         <div class="dept-header">
           <div class="dept-icon">
-            <span class="material-symbols-rounded">${icon}</span>
+            <span class="material-symbols-rounded">${escapeHtml(icon)}</span>
           </div>
           <div>
-            <div class="dept-title">${group.deptName} <span class="ac-item-badge ${badgeClass}">${group.level}</span></div>
-            <div class="dept-subtitle">${group.category} • ${deptCode}</div>
+            <div class="dept-title">${escapeHtml(group.deptName)} <span class="ac-item-badge ${badgeClass}">${escapeHtml(group.level)}</span></div>
+            <div class="dept-subtitle">${escapeHtml(group.category)} • ${escapeHtml(deptCode)}</div>
           </div>
           <span class="dept-count">${group.items.length} วิชา</span>
         </div>
@@ -308,23 +314,23 @@ function renderResults(data, query) {
       group.items.forEach(s => {
         const cardId = `detail-${s.code}-${s.deptCode}`.replace(/[^a-zA-Z0-9-]/g, '_');
         const hasPage = s.pdfPage > 0;
-        const pdfLink = hasPage ? `${s.pdfUrl}#page=${s.pdfPage}` : s.pdfUrl;
+        const pdfLink = hasPage ? `${escapeAttr(s.pdfUrl)}#page=${s.pdfPage}` : escapeAttr(s.pdfUrl);
         const pdfBtnClass = hasPage ? 'btn-page-found' : 'btn-pdf';
         const pdfBtnText = hasPage
           ? `<span class="material-symbols-rounded">menu_book</span> PDF หน้า ${s.pdfPage}`
           : `<span class="material-symbols-rounded">description</span> PDF`;
         html += `
-          <div class="subject-card" data-code="${s.code}" data-dept="${s.deptCode}" data-pdf="${s.pdfUrl}" onclick="toggleDetail(this, '${cardId}')">
+          <div class="subject-card" data-code="${escapeAttr(s.code)}" data-dept="${escapeAttr(s.deptCode)}" data-pdf="${escapeAttr(s.pdfUrl)}" onclick="toggleDetail(this, '${escapeAttr(cardId)}')">
             <div class="subject-code">${highlightText(s.code, query)}</div>
             <div class="subject-info">
               <div class="subject-name-th">${highlightText(s.nameTh, query)}</div>
               ${s.nameEn ? `<div class="subject-name-en">${highlightText(s.nameEn, query)}</div>` : ''}
               <div class="subject-meta">
-                ${s.credit ? `<span class="subject-credit">${s.credit}</span>` : ''}
+                ${s.credit ? `<span class="subject-credit">${escapeHtml(s.credit)}</span>` : ''}
               </div>
             </div>
             <div class="subject-actions" onclick="event.stopPropagation()">
-              <a class="${pdfBtnClass}" href="${pdfLink}" target="_blank" rel="noopener" title="ดูหลักสูตร ${group.deptName}">
+              <a class="${pdfBtnClass}" href="${pdfLink}" target="_blank" rel="noopener" title="ดูหลักสูตร ${escapeAttr(group.deptName)}">
                 ${pdfBtnText}
               </a>
             </div>
@@ -465,7 +471,7 @@ async function toggleDetail(card, detailId) {
     const data = await res.json();
 
     if (!data.success) {
-      detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> ${data.error || 'ไม่สามารถดึงข้อมูลได้'}</div>`;
+      detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> ${escapeHtml(data.error || 'ไม่สามารถดึงข้อมูลได้')}</div>`;
       return;
     }
 
@@ -477,12 +483,12 @@ async function toggleDetail(card, detailId) {
       <div class="detail-content">
         <div class="detail-header">
           <div class="detail-title">
-            <span class="detail-code">${data.courseCode}</span>
-            <span class="detail-name">${data.courseName}</span>
-            ${data.courseNameEn ? `<span class="detail-name-en">${data.courseNameEn}</span>` : ''}
+            <span class="detail-code">${escapeHtml(data.courseCode)}</span>
+            <span class="detail-name">${escapeHtml(data.courseName)}</span>
+            ${data.courseNameEn ? `<span class="detail-name-en">${escapeHtml(data.courseNameEn)}</span>` : ''}
           </div>
           <div class="detail-badges">
-            <span class="detail-credit"><span class="material-symbols-rounded">school</span> ${data.credit}</span>
+            <span class="detail-credit"><span class="material-symbols-rounded">school</span> ${escapeHtml(data.credit)}</span>
             ${pageInfo}
           </div>
         </div>
@@ -513,7 +519,7 @@ async function toggleDetail(card, detailId) {
     detailDiv.dataset.loaded = 'true';
 
   } catch (e) {
-    detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> เกิดข้อผิดพลาด: ${e.message}</div>`;
+    detailDiv.innerHTML = `<div class="detail-error"><span class="material-symbols-rounded">error</span> เกิดข้อผิดพลาด: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -590,7 +596,7 @@ function openPdfSplitModal() {
     pdfSplitLoading.style.display = 'flex';
     pdfSplitContent.style.display = 'none';
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js';
+    script.src = '/lib/pdf-lib.min.js';
     script.onload = () => {
       pdfLibLoaded = true;
       pdfSplitLoading.style.display = 'none';

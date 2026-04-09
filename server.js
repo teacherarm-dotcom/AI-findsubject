@@ -56,6 +56,10 @@ function loadData() {
 
 loadData();
 
+// Input validation helpers
+const VALID_SUBJECT_CODE = /^\d{5}-\d{4}$/;
+const VALID_DEPT_CODE = /^\d{5}$/;
+
 // Resolve correct PDF + page for a subject.
 // Falls back to the owning dept's PDF (e.g. core 20000 / 30000, or another dept
 // whose code prefix matches the subject) when the subject is not found in its
@@ -249,6 +253,9 @@ app.get('/api/generate-doc', async (req, res) => {
   if (!subjectCode || !deptCode) {
     return res.status(400).json({ error: 'Missing code or dept parameter' });
   }
+  if (!VALID_SUBJECT_CODE.test(subjectCode) || !VALID_DEPT_CODE.test(deptCode)) {
+    return res.status(400).json({ error: 'Invalid code or dept format' });
+  }
 
   const outputDir = path.join(__dirname, 'tmp');
   if (!fs.existsSync(outputDir)) {
@@ -307,6 +314,9 @@ app.get('/api/find-page', (req, res) => {
   if (!subjectCode || !deptCode) {
     return res.status(400).json({ error: 'Missing code or dept parameter' });
   }
+  if (!VALID_SUBJECT_CODE.test(subjectCode) || !VALID_DEPT_CODE.test(deptCode)) {
+    return res.status(400).json({ error: 'Invalid code or dept format' });
+  }
 
   const scriptPath = path.join(__dirname, 'scripts', 'find_page.py');
   const { execFile } = require('child_process');
@@ -335,6 +345,9 @@ app.get('/api/subject-detail', (req, res) => {
 
   if (!subjectCode || !deptCode) {
     return res.status(400).json({ error: 'Missing code or dept parameter' });
+  }
+  if (!VALID_SUBJECT_CODE.test(subjectCode) || !VALID_DEPT_CODE.test(deptCode)) {
+    return res.status(400).json({ error: 'Invalid code or dept format' });
   }
 
   const scriptPath = path.join(__dirname, 'scripts', 'subject_detail.py');
