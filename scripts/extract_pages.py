@@ -105,6 +105,17 @@ def extract_page_map(pdf_path, valid_codes):
                     code = f"{a}-{b}"
                     if code in valid_codes and code not in pages_map:
                         pages_map[code] = i + 1
+
+            # Pass 3 (fallback): for subjects still unmapped, accept any page
+            # where they appear — even TOC pages. Better than no mapping.
+            for i in range(len(doc)):
+                text = doc[i].get_text() or ''
+                if not text.strip():
+                    continue
+                for a, b in CODE_RE.findall(text):
+                    code = f"{a}-{b}"
+                    if code in valid_codes and code not in pages_map:
+                        pages_map[code] = i + 1
         finally:
             doc.close()
     except Exception as e:
