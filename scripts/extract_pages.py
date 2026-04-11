@@ -64,6 +64,9 @@ def download_pdf(url, retries=3):
 def extract_page_map(pdf_path, valid_codes):
     import fitz  # PyMuPDF
     pages_map = {}
+    # Detail pages have 1-2 subject codes; TOC/listing pages have 10+.
+    # Skip pages with too many codes to avoid mapping subjects to TOC pages.
+    MAX_CODES_PER_PAGE = 3
     try:
         doc = fitz.open(pdf_path)
         try:
@@ -74,9 +77,15 @@ def extract_page_map(pdf_path, valid_codes):
                     continue
                 if not any(kw in text for kw in DETAIL_KEYWORDS):
                     continue
+                page_codes = set()
                 for a, b in CODE_RE.findall(text):
                     code = f"{a}-{b}"
-                    if code in valid_codes and code not in pages_map:
+                    if code in valid_codes:
+                        page_codes.add(code)
+                if len(page_codes) > MAX_CODES_PER_PAGE:
+                    continue  # TOC / listing page — skip
+                for code in page_codes:
+                    if code not in pages_map:
                         pages_map[code] = i + 1
 
             # Pass 2: structural — code immediately followed by credit X-Y-Z
@@ -85,6 +94,13 @@ def extract_page_map(pdf_path, valid_codes):
                 text = doc[i].get_text() or ''
                 if not text.strip():
                     continue
+                page_codes = set()
+                for a, b in CODE_RE.findall(text):
+                    code = f"{a}-{b}"
+                    if code in valid_codes:
+                        page_codes.add(code)
+                if len(page_codes) > MAX_CODES_PER_PAGE:
+                    continue  # TOC / listing page — skip
                 for a, b in SUBJECT_HEADER_RE.findall(text):
                     code = f"{a}-{b}"
                     if code in valid_codes and code not in pages_map:
