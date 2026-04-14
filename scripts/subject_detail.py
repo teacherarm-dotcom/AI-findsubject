@@ -24,6 +24,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 DEPT_FILE = os.path.join(PROJECT_DIR, "data", "departments.json")
 SUBJECTS_FILE = os.path.join(PROJECT_DIR, "data", "subjects.json")
+PDF_CACHE_DIR = os.path.join(PROJECT_DIR, "data", "pdf-cache")
+os.makedirs(PDF_CACHE_DIR, exist_ok=True)
 
 with open(DEPT_FILE, "r", encoding="utf-8") as f:
     dept_data = json.load(f)
@@ -234,16 +236,26 @@ def main():
 
     pdf_url = PDF_BASE_URL + dept["pdf"]
 
-    # Download PDF
-    tmp = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False)
-    try:
-        urllib.request.urlretrieve(pdf_url, tmp.name)
-    except Exception as e:
-        print(json.dumps({"error": f"PDF download failed: {str(e)}"}))
-        sys.exit(0)
+    # Use cached PDF if available, otherwise download + cache
+    cached_pdf = os.path.join(PDF_CACHE_DIR, f"{dept_code}.pdf")
+    if not os.path.exists(cached_pdf) or os.path.getsize(cached_pdf) < 1024:
+        try:
+            req = urllib.request.Request(pdf_url, headers={
+                'User-Agent': 'Mozilla/5.0 (compatible; ai-findsubject/1.0)'
+            })
+            with urllib.request.urlopen(req, timeout=60) as response:
+                with open(cached_pdf, 'wb') as f:
+                    f.write(response.read())
+        except Exception as e:
+            # Remove incomplete cache file
+            if os.path.exists(cached_pdf):
+                try: os.unlink(cached_pdf)
+                except: pass
+            print(json.dumps({"error": f"PDF download failed: {str(e)}"}))
+            sys.exit(0)
 
     try:
-        details = extract_details(tmp.name, subject_code, page_hint)
+        details = extract_details(cached_pdf, subject_code, page_hint)
 
         output = {
             "success": True,
@@ -263,8 +275,9 @@ def main():
         }
         print(json.dumps(output, ensure_ascii=False))
 
-    finally:
-        os.unlink(tmp.name)
+    except Exception as e:
+        print(json.dumps({"error": f"Extraction failed: {str(e)}"}))
+        sys.exit(0)
 
 
 if __name__ == "__main__":
