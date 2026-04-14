@@ -354,7 +354,10 @@ app.get('/api/find-page', (req, res) => {
   });
 });
 
-// API: Get subject detail (JSON) - full curriculum info
+// API: Get subject detail (JSON) - full curriculum info (with file cache)
+const detailCacheDir = path.join(__dirname, 'data', 'detail-cache');
+if (!fs.existsSync(detailCacheDir)) fs.mkdirSync(detailCacheDir, { recursive: true });
+
 app.get('/api/subject-detail', (req, res) => {
   const subjectCode = req.query.code;
   const deptCode = req.query.dept;
@@ -366,6 +369,22 @@ app.get('/api/subject-detail', (req, res) => {
     return res.status(400).json({ error: 'Invalid code or dept format' });
   }
 
+  // Check file-based cache first
+  const cacheKey = `${subjectCode}_${deptCode}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cachePath = path.join(detailCacheDir, `${cacheKey}.json`);
+
+  if (fs.existsSync(cachePath)) {
+    try {
+      const cached = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      console.log(`Cache hit: ${subjectCode} (${deptCode})`);
+      return res.json(cached);
+    } catch (e) {
+      // Cache corrupt, re-extract
+      fs.unlinkSync(cachePath);
+    }
+  }
+
+  console.log(`Cache miss: ${subjectCode} (${deptCode}) — extracting from PDF...`);
   const scriptPath = path.join(__dirname, 'scripts', 'subject_detail.py');
   const { execFile } = require('child_process');
 
@@ -379,6 +398,13 @@ app.get('/api/subject-detail', (req, res) => {
     }
     try {
       const result = JSON.parse(stdout.trim());
+      // Save to file cache
+      try {
+        fs.writeFileSync(cachePath, JSON.stringify(result, null, 2), 'utf8');
+        console.log(`Cached: ${subjectCode} (${deptCode})`);
+      } catch (cacheErr) {
+        console.warn('Cache write error:', cacheErr.message);
+      }
       res.json(result);
     } catch (e) {
       res.status(500).json({ error: 'Invalid response' });
