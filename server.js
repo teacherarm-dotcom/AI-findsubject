@@ -361,6 +361,7 @@ if (!fs.existsSync(detailCacheDir)) fs.mkdirSync(detailCacheDir, { recursive: tr
 app.get('/api/subject-detail', (req, res) => {
   const subjectCode = req.query.code;
   const deptCode = req.query.dept;
+  const pageHint = parseInt(req.query.page, 10);
 
   if (!subjectCode || !deptCode) {
     return res.status(400).json({ error: 'Missing code or dept parameter' });
@@ -384,12 +385,15 @@ app.get('/api/subject-detail', (req, res) => {
     }
   }
 
-  console.log(`Cache miss: ${subjectCode} (${deptCode}) — extracting from PDF...`);
+  console.log(`Cache miss: ${subjectCode} (${deptCode}) page=${pageHint || '-'} — extracting from PDF...`);
   const scriptPath = path.join(__dirname, 'scripts', 'subject_detail.py');
   const { execFile } = require('child_process');
 
-  execFile('python3', [scriptPath, subjectCode, deptCode], {
-    timeout: 120000,
+  const args = [scriptPath, subjectCode, deptCode];
+  if (Number.isFinite(pageHint) && pageHint > 0) args.push(String(pageHint));
+
+  execFile('python3', args, {
+    timeout: 90000,
     maxBuffer: 1024 * 1024
   }, (error, stdout, stderr) => {
     if (error) {
