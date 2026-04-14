@@ -393,12 +393,13 @@ app.get('/api/subject-detail', (req, res) => {
   if (Number.isFinite(pageHint) && pageHint > 0) args.push(String(pageHint));
 
   execFile('python3', args, {
-    timeout: 90000,
+    timeout: 180000,
     maxBuffer: 1024 * 1024
   }, (error, stdout, stderr) => {
     if (error) {
       console.error('Subject detail error:', error.message);
-      return res.status(500).json({ error: 'Detail extraction failed' });
+      if (stderr) console.error('stderr:', stderr.toString().slice(0, 500));
+      return res.status(500).json({ error: 'Detail extraction failed', details: error.message });
     }
     try {
       const result = JSON.parse(stdout.trim());
