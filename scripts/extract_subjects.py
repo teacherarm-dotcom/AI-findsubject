@@ -35,25 +35,13 @@ CREDIT_RE = re.compile(r'(\d+|\*)[–-](\d+|\*)[–-](\d+)')
 
 
 def clean_thai_name(name):
-    """Fix common Thai PDF text extraction errors:
-    decomposed sara am, garbled thanthakhat/mai tho, misplaced spaces."""
-    # Decomposed sara am -> composed (nikhahit + sara aa -> sara am)
-    name = name.replace('\u0e4d\u0e32', '\u0e33')
-    name = name.replace('\u0e4d \u0e32', '\u0e33')
-    # ) after Thai consonant/combining -> thanthakhat
-    name = re.sub(r'([\u0e01-\u0e2e])\)', lambda m: m.group(1) + '\u0e4c', name)
-    name = re.sub(r'([\u0e31\u0e34-\u0e3a\u0e47-\u0e4b])\)', lambda m: m.group(1) + '\u0e4c', name)
-    # , after Thai consonant -> thanthakhat
-    name = re.sub(r'([\u0e01-\u0e2e]),', lambda m: m.group(1) + '\u0e4c', name)
-    name = re.sub(r'([\u0e31\u0e34-\u0e3a\u0e47-\u0e4b]),', lambda m: m.group(1) + '\u0e4c', name)
-    # 4 in Thai context -> mai tho
-    name = re.sub(r'([\u0e01-\u0e2e])4([\u0e01-\u0e7f\s])', lambda m: m.group(1) + '\u0e49' + m.group(2), name)
-    name = re.sub(r'([\u0e01-\u0e2e])4$', lambda m: m.group(1) + '\u0e49', name)
-    # Remove space before combining marks
-    name = re.sub(r'\s+([\u0e31\u0e34-\u0e3a\u0e47-\u0e4e])', lambda m: m.group(1), name)
-    # Collapse double spaces + trim
-    name = re.sub(r'  +', ' ', name).strip()
-    return name
+    """Fix common Thai PDF text extraction errors (wrapper around the
+    comprehensive normaliser in subject_detail.fix_thai_encoding):
+    PUA garble, decomposed sara am, misplaced thanthakhat/mai tho,
+    visual-order combining marks, misplaced spaces."""
+    # Lazy import to avoid circular / import-time PDF loading.
+    from subject_detail import fix_thai_encoding
+    return fix_thai_encoding(name).strip()
 
 
 def download_pdf(url):

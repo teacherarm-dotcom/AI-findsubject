@@ -35,7 +35,80 @@ with open(SUBJECTS_FILE, "r", encoding="utf-8") as f:
     subj_data = json.load(f)
 
 
-def fix_thai_encoding(text):
+# ------------------------------------------------------------------
+# Thai PDF-extraction cleanup.
+#
+# VEC curriculum PDFs are rendered with a custom Thai font whose
+# combining marks live in the Private Use Area (U+F700–U+F71F) and
+# whose glyph stream preserves VISUAL order rather than Unicode
+# logical order. Extracted text therefore shows:
+#   1. PUA garble chars where tone marks / vowels should be.
+#   2. Upper vowels / tone marks placed AFTER the next consonant
+#      (e.g. "สิ่ง" -> "สงิ่", "กับ" -> "กบั").
+#   3. Decomposed sara am (นิคหิต + สระอา) where "ำ" should be.
+#   4. Stray ASCII chars (P Q ) , 4 ...) left over from older fonts.
+#   5. Spurious spaces before combining marks.
+# ------------------------------------------------------------------
+
+# PUA → Thai combining mark mapping (determined empirically from
+# thousands of curriculum-PDF samples; see scripts/build_pua_map.py
+# / cache analysis).
+PUA_MAP = {
+    '\uf700': '\u0e48',  # mai ek
+    '\uf701': '\u0e34',  # sara i
+    '\uf702': '\u0e35',  # sara ii
+    '\uf703': '\u0e36',  # sara ue
+    '\uf704': '\u0e37',  # sara uee
+    '\uf705': '\u0e48',  # mai ek (tall variant)
+    '\uf706': '\u0e49',  # mai tho (tall variant)
+    '\uf707': '\u0e4a',  # mai tri (tall variant)
+    '\uf708': '\u0e4b',  # mai chattawa (tall variant)
+    '\uf709': '\u0e4c',  # thanthakhat (tall variant)
+    '\uf70a': '\u0e48',  # mai ek
+    '\uf70b': '\u0e49',  # mai tho
+    '\uf70c': '\u0e4a',  # mai tri
+    '\uf70d': '\u0e4b',  # mai chattawa
+    '\uf70e': '\u0e4c',  # thanthakhat
+    '\uf70f': '\u0e4d',  # nikhahit
+    '\uf710': '\u0e31',  # mai han akat
+    '\uf711': '\u0e34',  # sara i (variant)
+    '\uf712': '\u0e47',  # mai taikhu
+    '\uf713': '\u0e48',  # mai ek (variant)
+    '\uf714': '\u0e49',  # mai tho (stacked above sara uee)
+    '\uf715': '\u0e4a',  # mai tri (stacked above mai han)
+    '\uf716': '\u0e4b',  # mai chattawa (stacked)
+    '\uf717': '\u0e4c',  # thanthakhat (stacked)
+    '\uf718': '\u0e4d',  # nikhahit (stacked)
+    '\uf71b': '',        # stray glyph noise (font-specific marker)
+}
+
+_UPPER_MARKS = '\u0e31\u0e34\u0e35\u0e36\u0e37\u0e47\u0e48\u0e49\u0e4a\u0e4b\u0e4c\u0e4d\u0e4e'
+# Subset that's safe to swap during reorder. Excludes ์ (thanthakhat)
+# and ํ (nikhahit) — those are usually correctly placed at the END of
+# a word ("รถยนต์", "อนุสรณ์") and would be wrongly pulled inward.
+_SWAPPABLE_MARKS = '\u0e31\u0e34\u0e35\u0e36\u0e37\u0e47\u0e48\u0e49\u0e4a\u0e4b'
+
+# Reorder rule:
+# In garbled visual-order extracts the upper vowel/tone mark gets
+# pushed past the next consonant AND a spurious space is inserted at
+# the glyph-cluster boundary. We only swap when that trailing space
+# (or line end) is present — that's our signal of a glyph boundary
+# rather than a genuine syllable break. This keeps real Thai words
+# like "เกี่ยวกับ", "ปลอดภัย", "ปฏิบัติงาน", "รถยนต์" intact.
+_REORDER_C_C_MARK_BOUNDARY = re.compile(
+    r'([\u0e01-\u0e2e])([\u0e01-\u0e2e])([' + _SWAPPABLE_MARKS + r']+)(?=\s|$|[^\u0e01-\u0e7f])'
+)
+# Same idea, but the "wrong" character is a leading vowel
+# (เ แ โ ไ ใ) — the mark must move back past the lead vowel onto
+# the consonant before it.
+_REORDER_C_LEAD_MARK_BOUNDARY = re.compile(
+    r'([\u0e01-\u0e2e])([\u0e40-\u0e44])([' + _SWAPPABLE_MARKS + r']+)(?=\s|$|[^\u0e01-\u0e7f])'
+)
+
+
+def _ascii_in_thai_context(text):
+    """Legacy ASCII garble (P Q ) , 4 etc.) — only touches chars
+    flanked by Thai so we don't mangle English fragments."""
     result = list(text)
     for i, ch in enumerate(result):
         prev_thai = i > 0 and '\u0e00' <= result[i-1] <= '\u0e7f'
@@ -71,7 +144,83 @@ def fix_thai_encoding(text):
             result[i] = '\u0e47'
         elif ch == 'v' and prev_thai and next_thai:
             result[i] = '\u0e48'
+        elif prev_thai and ch == ',' and next_thai:
+            result[i] = '\u0e4c'
+        elif prev_thai and ch == '4' and next_thai:
+            result[i] = '\u0e49'
     return ''.join(result)
+
+
+def fix_thai_encoding(text):
+    """Full Thai PDF-extraction cleanup. Safe to call multiple times —
+    idempotent on already-clean text."""
+    if not text:
+        return text
+
+    # 1. PUA → real Thai marks
+    text = text.translate(str.maketrans(PUA_MAP))
+
+    # 2. Decomposed sara am → composed สระอำ
+    text = text.replace('\u0e4d\u0e32', '\u0e33')
+    text = text.replace('\u0e4d \u0e32', '\u0e33')
+
+    # 3. Legacy ASCII garble (PQ")4,*@0… around Thai consonants)
+    text = _ascii_in_thai_context(text)
+
+    # 4. Reorder misplaced upper marks pushed one consonant too far
+    #    (visual-order glyph extraction). Iterate because chained
+    #    misplacements happen; only swap at a glyph-cluster boundary
+    #    so valid syllable-boundary patterns like "เกี่ยวกับ" stay put.
+    for _ in range(4):
+        prev = text
+        text = _REORDER_C_C_MARK_BOUNDARY.sub(
+            lambda m: m.group(1) + m.group(3) + m.group(2), text
+        )
+        text = _REORDER_C_LEAD_MARK_BOUNDARY.sub(
+            lambda m: m.group(1) + m.group(3) + m.group(2), text
+        )
+        if text == prev:
+            break
+
+    # 5. Remove stray spaces before combining marks.
+    text = re.sub(
+        r'\s+([' + _UPPER_MARKS + r'\u0e38\u0e39\u0e3a])',
+        lambda m: m.group(1),
+        text,
+    )
+
+    # 6. Normalise combining-mark order within a cluster:
+    #    vowel/mai-han/taikhu come BEFORE tone mark (Unicode spec).
+    #    Fixes "เป้ือน" (stacked tone before vowel) -> "เปื้อน".
+    text = re.sub(
+        r'([\u0e48-\u0e4b])([\u0e31\u0e34-\u0e37\u0e47])',
+        lambda m: m.group(2) + m.group(1),
+        text,
+    )
+
+    # 7. If a lead vowel (เ แ โ ไ ใ) ended up separated from the
+    #    following consonant by a lone space (artefact of step 4),
+    #    move the space back in front of the lead vowel so the
+    #    syllable stays intact.
+    text = re.sub(
+        r'([\u0e40-\u0e44])\s+([\u0e01-\u0e2e])',
+        r' \1\2',
+        text,
+    )
+
+    # 8. Remove stray space between a consonant and the spacing
+    #    vowel sara aa / sara am / sara ae-tail (ำ า ะ)
+    #    — again an artefact of glyph-cluster boundaries.
+    text = re.sub(
+        r'([\u0e01-\u0e2e])\s+([\u0e30\u0e32\u0e33\u0e45])',
+        r'\1\2',
+        text,
+    )
+
+    # 9. Collapse duplicate spaces.
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+
+    return text
 
 
 def extract_details(pdf_path, subject_code, page_hint=0):
@@ -188,11 +337,14 @@ def extract_details(pdf_path, subject_code, page_hint=0):
             if current_section and line_stripped:
                 sections[current_section].append(line_stripped)
 
-        result['standardRef'] = '\n'.join(sections['standardRef']).strip() or '-'
-        result['learningOutcomes'] = '\n'.join(sections['learningOutcomes']).strip()
-        result['objectives'] = '\n'.join(sections['objectives']).strip()
-        result['competencies'] = '\n'.join(sections['competencies']).strip()
-        result['description'] = '\n'.join(sections['description']).strip()
+        # Normalise each section through the full Thai cleanup pipeline
+        # (defence-in-depth: full_text already went through it, but
+        # re-running is idempotent and cheap).
+        result['standardRef'] = fix_thai_encoding('\n'.join(sections['standardRef']).strip() or '-')
+        result['learningOutcomes'] = fix_thai_encoding('\n'.join(sections['learningOutcomes']).strip())
+        result['objectives'] = fix_thai_encoding('\n'.join(sections['objectives']).strip())
+        result['competencies'] = fix_thai_encoding('\n'.join(sections['competencies']).strip())
+        result['description'] = fix_thai_encoding('\n'.join(sections['description']).strip())
 
     return result
 
