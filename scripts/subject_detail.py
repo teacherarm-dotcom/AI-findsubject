@@ -340,11 +340,26 @@ def extract_details(pdf_path, subject_code, page_hint=0):
         # Normalise each section through the full Thai cleanup pipeline
         # (defence-in-depth: full_text already went through it, but
         # re-running is idempotent and cheap).
-        result['standardRef'] = fix_thai_encoding('\n'.join(sections['standardRef']).strip() or '-')
-        result['learningOutcomes'] = fix_thai_encoding('\n'.join(sections['learningOutcomes']).strip())
-        result['objectives'] = fix_thai_encoding('\n'.join(sections['objectives']).strip())
-        result['competencies'] = fix_thai_encoding('\n'.join(sections['competencies']).strip())
-        result['description'] = fix_thai_encoding('\n'.join(sections['description']).strip())
+        #
+        # After fix_thai_encoding (PUA -> Unicode, visual-order reorder)
+        # we run fix_thai_spacing (dictionary-guided merge + dedup +
+        # misplaced-thanthakhat fix) as a second pass. Imported lazily
+        # so fresh extractions that don't hit this branch don't pay the
+        # pythainlp import cost.
+        try:
+            from thai_spacing import fix_thai_spacing
+        except Exception:
+            def fix_thai_spacing(t):  # graceful fallback if pythainlp missing
+                return t
+
+        def _clean(text):
+            return fix_thai_spacing(fix_thai_encoding(text))
+
+        result['standardRef'] = _clean('\n'.join(sections['standardRef']).strip() or '-')
+        result['learningOutcomes'] = _clean('\n'.join(sections['learningOutcomes']).strip())
+        result['objectives'] = _clean('\n'.join(sections['objectives']).strip())
+        result['competencies'] = _clean('\n'.join(sections['competencies']).strip())
+        result['description'] = _clean('\n'.join(sections['description']).strip())
 
     return result
 
