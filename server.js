@@ -5,6 +5,37 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const app = express();
+
+// ---------------------------------------------------------------------------
+// Crash protection: log uncaught errors instead of dying.
+// Without these, ANY unhandled async error anywhere in the process
+// kills the Node server — which on Render means a 30-60s cold restart
+// and "the site is down" from the user's perspective.
+// ---------------------------------------------------------------------------
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err && err.stack || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason && reason.stack || reason);
+});
+
+// Graceful shutdown — let in-flight requests finish before exiting.
+let httpServer = null;
+function shutdown(signal) {
+  console.log(`[${signal}] Graceful shutdown starting...`);
+  if (!httpServer) return process.exit(0);
+  const t = setTimeout(() => {
+    console.warn('[shutdown] Forcing exit after 10s');
+    process.exit(1);
+  }, 10000);
+  httpServer.close(() => {
+    clearTimeout(t);
+    console.log('[shutdown] Closed cleanly');
+    process.exit(0);
+  });
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 // Render terminates TLS on its proxy and forwards the real client IP via
 // X-Forwarded-For. Without `trust proxy` express-rate-limit groups every
 // request under the proxy's single IP and one chatty user (or a popular
@@ -110,6 +141,62 @@ function resolvePdf(subj) {
     }
   }
   return { pdfUrl: pdfBaseUrl + pdfFile, pdfPage: page };
+}
+
+// ---------------------------------------------------------------------------
+// Python subprocess concurrency limiter.
+// Each Python invocation imports pdfplumber + PyMuPDF + pypdfium2 +
+// pythainlp -- roughly 100MB RAM. On Render free tier (512MB) we can
+// only safely run 2-3 in parallel before the OS OOM-kills the Node
+// process. Without this gate, a burst of cache-miss requests crashes
+// the entire server.
+// ---------------------------------------------------------------------------
+const MAX_PY_CONCURRENCY = parseInt(process.env.MAX_PY_CONCURRENCY || '2', 10);
+const PY_QUEUE_TIMEOUT_MS = 30000;
+let pyActive = 0;
+const pyWaiters = [];
+
+function acquirePySlot() {
+  return new Promise((resolve, reject) => {
+    if (pyActive < MAX_PY_CONCURRENCY) {
+      pyActive++;
+      return resolve();
+    }
+    const timer = setTimeout(() => {
+      const idx = pyWaiters.indexOf(entry);
+      if (idx !== -1) pyWaiters.splice(idx, 1);
+      reject(new Error('Server busy — please retry'));
+    }, PY_QUEUE_TIMEOUT_MS);
+    const entry = { resolve, timer };
+    pyWaiters.push(entry);
+  });
+}
+function releasePySlot() {
+  pyActive = Math.max(0, pyActive - 1);
+  const next = pyWaiters.shift();
+  if (next) {
+    clearTimeout(next.timer);
+    pyActive++;
+    next.resolve();
+  }
+}
+
+// runPython: wraps execFile with the concurrency gate. Always releases
+// its slot, even on error/timeout.
+function runPython(scriptPath, args, opts) {
+  const { execFile } = require('child_process');
+  return new Promise(async (resolve, reject) => {
+    try {
+      await acquirePySlot();
+    } catch (e) {
+      return reject(e);
+    }
+    execFile('python3', [scriptPath, ...args], opts, (error, stdout, stderr) => {
+      releasePySlot();
+      if (error) return reject(Object.assign(error, { stderr }));
+      resolve({ stdout, stderr });
+    });
+  });
 }
 
 // Rate limiting
@@ -304,48 +391,42 @@ app.get('/api/generate-doc', async (req, res) => {
   const outputFile = path.join(outputDir, `${subjectCode}_${timestamp}.docx`);
   const scriptPath = path.join(__dirname, 'scripts', 'generate_doc.py');
 
-  const { execFile } = require('child_process');
-
-  execFile('python3', [scriptPath, subjectCode, deptCode, outputFile], {
-    timeout: 120000,
-    maxBuffer: 1024 * 1024
-  }, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Generate doc error:', error.message);
-      console.error('stderr:', stderr);
-      return res.status(500).json({ error: 'Document generation failed' });
-    }
-
+  try {
+    const { stdout } = await runPython(scriptPath, [subjectCode, deptCode, outputFile], {
+      timeout: 120000,
+      maxBuffer: 1024 * 1024
+    });
+    let result;
     try {
-      const result = JSON.parse(stdout.trim());
-
-      if (!result.success) {
-        return res.status(500).json({ error: result.error || 'Generation failed' });
-      }
-
-      // Send file with pdfPage info in header
-      const filename = `${subjectCode}_${result.subject.name}.docx`;
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-      if (result.pdfPage) {
-        res.setHeader('X-Pdf-Page', result.pdfPage);
-      }
-
-      const fileStream = fs.createReadStream(outputFile);
-      fileStream.pipe(res);
-      fileStream.on('end', () => {
-        // Clean up temp file
-        fs.unlink(outputFile, () => {});
-      });
+      result = JSON.parse(stdout.trim());
     } catch (e) {
       console.error('Parse error:', e, stdout);
-      res.status(500).json({ error: 'Invalid response from generator' });
+      return res.status(500).json({ error: 'Invalid response from generator' });
     }
-  });
+    if (!result.success) {
+      return res.status(500).json({ error: result.error || 'Generation failed' });
+    }
+    // Send file with pdfPage info in header
+    const filename = `${subjectCode}_${result.subject.name}.docx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+    if (result.pdfPage) res.setHeader('X-Pdf-Page', result.pdfPage);
+    const fileStream = fs.createReadStream(outputFile);
+    fileStream.pipe(res);
+    fileStream.on('close', () => fs.unlink(outputFile, () => {}));
+    fileStream.on('error', () => fs.unlink(outputFile, () => {}));
+  } catch (error) {
+    console.error('Generate doc error:', error.message);
+    if (error.stderr) console.error('stderr:', String(error.stderr).slice(0, 500));
+    if (/Server busy/.test(error.message)) {
+      return res.status(503).json({ error: 'Server busy — please retry in a moment' });
+    }
+    res.status(500).json({ error: 'Document generation failed' });
+  }
 });
 
 // API: Find PDF page number for a subject
-app.get('/api/find-page', (req, res) => {
+app.get('/api/find-page', async (req, res) => {
   const subjectCode = req.query.code;
   const deptCode = req.query.dept;
 
@@ -357,30 +438,31 @@ app.get('/api/find-page', (req, res) => {
   }
 
   const scriptPath = path.join(__dirname, 'scripts', 'find_page.py');
-  const { execFile } = require('child_process');
 
-  execFile('python3', [scriptPath, subjectCode, deptCode], {
-    timeout: 60000,
-    maxBuffer: 1024 * 1024
-  }, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Find page error:', error.message);
-      return res.status(500).json({ error: 'Page lookup failed' });
-    }
+  try {
+    const { stdout } = await runPython(scriptPath, [subjectCode, deptCode], {
+      timeout: 60000,
+      maxBuffer: 1024 * 1024
+    });
     try {
-      const result = JSON.parse(stdout.trim());
-      res.json(result);
+      res.json(JSON.parse(stdout.trim()));
     } catch (e) {
       res.status(500).json({ error: 'Invalid response' });
     }
-  });
+  } catch (error) {
+    console.error('Find page error:', error.message);
+    if (/Server busy/.test(error.message)) {
+      return res.status(503).json({ error: 'Server busy — please retry in a moment' });
+    }
+    res.status(500).json({ error: 'Page lookup failed' });
+  }
 });
 
 // API: Get subject detail (JSON) - full curriculum info (with file cache)
 const detailCacheDir = path.join(__dirname, 'data', 'detail-cache');
 if (!fs.existsSync(detailCacheDir)) fs.mkdirSync(detailCacheDir, { recursive: true });
 
-app.get('/api/subject-detail', (req, res) => {
+app.get('/api/subject-detail', async (req, res) => {
   const subjectCode = req.query.code;
   const deptCode = req.query.dept;
   const pageHint = parseInt(req.query.page, 10);
@@ -403,40 +485,43 @@ app.get('/api/subject-detail', (req, res) => {
       return res.json(cached);
     } catch (e) {
       // Cache corrupt, re-extract
-      fs.unlinkSync(cachePath);
+      try { fs.unlinkSync(cachePath); } catch (_) { /* ignore */ }
     }
   }
 
   console.log(`Cache miss: ${subjectCode} (${deptCode}) page=${pageHint || '-'} — extracting from PDF...`);
   const scriptPath = path.join(__dirname, 'scripts', 'subject_detail.py');
-  const { execFile } = require('child_process');
 
-  const args = [scriptPath, subjectCode, deptCode];
+  const args = [subjectCode, deptCode];
   if (Number.isFinite(pageHint) && pageHint > 0) args.push(String(pageHint));
 
-  execFile('python3', args, {
-    timeout: 180000,
-    maxBuffer: 1024 * 1024
-  }, (error, stdout, stderr) => {
-    if (error) {
-      console.error('Subject detail error:', error.message);
-      if (stderr) console.error('stderr:', stderr.toString().slice(0, 500));
-      return res.status(500).json({ error: 'Detail extraction failed', details: error.message });
-    }
+  try {
+    const { stdout } = await runPython(scriptPath, args, {
+      timeout: 180000,
+      maxBuffer: 1024 * 1024
+    });
+    let result;
     try {
-      const result = JSON.parse(stdout.trim());
-      // Save to file cache
-      try {
-        fs.writeFileSync(cachePath, JSON.stringify(result, null, 2), 'utf8');
-        console.log(`Cached: ${subjectCode} (${deptCode})`);
-      } catch (cacheErr) {
-        console.warn('Cache write error:', cacheErr.message);
-      }
-      res.json(result);
+      result = JSON.parse(stdout.trim());
     } catch (e) {
-      res.status(500).json({ error: 'Invalid response' });
+      return res.status(500).json({ error: 'Invalid response' });
     }
-  });
+    // Save to file cache
+    try {
+      fs.writeFileSync(cachePath, JSON.stringify(result, null, 2), 'utf8');
+      console.log(`Cached: ${subjectCode} (${deptCode})`);
+    } catch (cacheErr) {
+      console.warn('Cache write error:', cacheErr.message);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Subject detail error:', error.message);
+    if (error.stderr) console.error('stderr:', String(error.stderr).slice(0, 500));
+    if (/Server busy/.test(error.message)) {
+      return res.status(503).json({ error: 'Server busy — please retry in a moment' });
+    }
+    res.status(500).json({ error: 'Detail extraction failed', details: error.message });
+  }
 });
 
 // API: Extract page numbers for all subjects (run once to populate pages.json)
@@ -466,6 +551,30 @@ app.get('/api/extract-pages', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// ---------------------------------------------------------------------------
+// Health check endpoint. Render uses this for liveness probes; returns
+// 503 when memory pressure is dangerous so Render can restart the
+// instance before it OOM-crashes.
+// ---------------------------------------------------------------------------
+app.get('/healthz', (req, res) => {
+  const mem = process.memoryUsage();
+  const rssMB = mem.rss / 1024 / 1024;
+  const heapUsedMB = mem.heapUsed / 1024 / 1024;
+  // Render free tier = 512MB. Trigger 503 above 460MB so the instance
+  // gets recycled before the kernel OOM-killer takes the whole process.
+  const memCritical = rssMB > 460;
+  const status = memCritical ? 503 : 200;
+  res.status(status).json({
+    ok: !memCritical,
+    uptime: process.uptime(),
+    rssMB: Math.round(rssMB),
+    heapUsedMB: Math.round(heapUsedMB),
+    pyActive,
+    pyQueued: pyWaiters.length,
+    subjectsLoaded: flatSubjects ? flatSubjects.length : 0,
+  });
+});
+
+httpServer = app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT} (max py concurrency=${MAX_PY_CONCURRENCY})`);
 });

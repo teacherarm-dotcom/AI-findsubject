@@ -4,6 +4,9 @@ services:
     runtime: node
     buildCommand: npm install && pip install -r requirements.txt
     startCommand: node server.js
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_ENV
         value: production
+      - key: MAX_PY_CONCURRENCY
+        value: "2"
