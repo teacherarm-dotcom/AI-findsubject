@@ -5,6 +5,11 @@ const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
 const app = express();
+// Render terminates TLS on its proxy and forwards the real client IP via
+// X-Forwarded-For. Without `trust proxy` express-rate-limit groups every
+// request under the proxy's single IP and one chatty user (or a popular
+// page that opens this tab in many browsers) blocks everyone else.
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(compression());
 const PORT = process.env.PORT || 3000;
@@ -108,8 +113,25 @@ function resolvePdf(subj) {
 }
 
 // Rate limiting
-const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 200, message: { error: 'Too many requests, please try again later.' } });
-const heavyLimiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Too many requests, please try again later.' } });
+// Cheap read-only endpoints (search/autocomplete/categories/stats) get
+// fired several times per page load — keep them generous so bouncing
+// between modals doesn't trip the limiter.
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+// Endpoints that hit the filesystem / parse PDFs are still capped, but
+// loose enough that a normal "browse 4-5 subjects" flow doesn't 429.
+const heavyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
 app.use('/api/', apiLimiter);
 app.use('/api/subject-detail', heavyLimiter);
 app.use('/api/generate-doc', heavyLimiter);
